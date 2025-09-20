@@ -31,7 +31,11 @@ type Perch[T any] struct {
 	tail uint32 // LRU
 
 	free        uint32     // head of freelist (stack of indices)
-	reserveOnce *sync.Once // ensures Reserve() only runs once - we do not need to resize the cache
+	reserveOnce *sync.Once // ensures Reserve() only runs once
+
+	// hit rate statistics
+	hits   uint64 // number of cache hits
+	misses uint64 // number of cache misses
 }
 
 type entry[T any] struct {
@@ -95,6 +99,8 @@ func (c *Perch[T]) Reset() {
 	c.table = make(map[string]uint32, c.cap*2)
 	c.slots = make([]entry[T], 0, c.cap+1)
 	c.reserveOnce = &sync.Once{}
+	c.hits = 0
+	c.misses = 0
 }
 
 // Reserve allocates all the slots required for the cache
@@ -125,9 +131,10 @@ func (c *Perch[T]) Reserve() error {
 
 // Get returns cached value if present+fresh. Otherwise calls loader once per key,
 // caches result with TTL > 0, and returns it. ttl<=0 means "do not cache".
-func (c *Perch[T]) Get(ctx context.Context, key string, ttl time.Duration, loader Loader[T]) (T, error) {
+// Returns (value, cacheHit, error) where cacheHit indicates if the value was found in cache.
+func (c *Perch[T]) Get(ctx context.Context, key string, ttl time.Duration, loader Loader[T]) (T, bool, error) {
 	if err := c.Reserve(); err != nil {
-		return *new(T), err
+		return *new(T), false, err
 	}
 
 	var zero T
@@ -138,7 +145,12 @@ func (c *Perch[T]) Get(ctx context.Context, key string, ttl time.Duration, loade
 		// do not do anything - just call the loader and get out
 		// the rest of this logic does a lot of things to effectively manage contention
 		// but we don't need to do that if we're not caching
-		return loader(ctx, key)
+		val, err := loader(ctx, key)
+		// Count as a miss since we're not caching
+		c.mu.Lock()
+		c.misses++
+		c.mu.Unlock()
+		return val, false, err
 	}
 
 	// Fast path: lookup under global lock.
@@ -159,14 +171,15 @@ func (c *Perch[T]) Get(ctx context.Context, key string, ttl time.Duration, loade
 			v := e.val
 			e.mu.Unlock()
 
-			// bump MRU safely (don’t hold e.mu here)
+			// bump MRU safely (don't hold e.mu here)
 			c.mu.Lock()
 			if c.table[key] == idx { // still same slot?
 				c.moveToFront(idx)
 			}
+			c.hits++ // increment hit counter
 			c.mu.Unlock()
 
-			return v, nil
+			return v, true, nil
 		}
 
 		// Stale: we'll (re)load below.
@@ -188,7 +201,7 @@ func (c *Perch[T]) Get(ctx context.Context, key string, ttl time.Duration, loade
 		if idx == 0 {
 			// shouldn't happen (cap>0)
 			c.mu.Unlock()
-			return zero, errors.New("lru: no slot available")
+			return zero, false, errors.New("lru: no slot available")
 		}
 		et := &c.slots[idx] // 1-based indexing
 		// unlink from list
@@ -218,7 +231,7 @@ func (c *Perch[T]) Get(ctx context.Context, key string, ttl time.Duration, loade
 }
 
 // loadInto performs the loader call for a specific slot index and signals waiters.
-func (c *Perch[T]) loadInto(ctx context.Context, idx uint32, key string, ttl time.Duration, loader Loader[T]) (T, error) {
+func (c *Perch[T]) loadInto(ctx context.Context, idx uint32, key string, ttl time.Duration, loader Loader[T]) (T, bool, error) {
 	e := &c.slots[idx] // 1-based indexing
 
 	// wrap the loader - so that we can intercept panics if they happen
@@ -265,7 +278,7 @@ func (c *Perch[T]) loadInto(ctx context.Context, idx uint32, key string, ttl tim
 			c.free = idx
 		}
 		c.mu.Unlock()
-		return *new(T), err
+		return *new(T), false, err
 	}
 
 	// Success with caching: bump to MRU (cheap if already at head).
@@ -273,8 +286,9 @@ func (c *Perch[T]) loadInto(ctx context.Context, idx uint32, key string, ttl tim
 	if c.table[key] == idx {
 		c.moveToFront(idx)
 	}
+	c.misses++ // increment miss counter
 	c.mu.Unlock()
-	return val, nil
+	return val, false, nil
 }
 
 func (c *Perch[T]) Delete(key string) {
@@ -373,4 +387,55 @@ func (c *Perch[T]) moveToFront(idx uint32) {
 	}
 	c.unlink(idx)
 	c.linkFront(idx)
+}
+
+// HitRate returns the current hit rate as a percentage (0.0 to 100.0)
+func (c *Perch[T]) HitRate() float64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	total := c.hits + c.misses
+	if total == 0 {
+		return 0.0
+	}
+	return float64(c.hits) / float64(total) * 100.0
+}
+
+// Stats returns detailed cache statistics
+func (c *Perch[T]) Stats() CacheStats {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	total := c.hits + c.misses
+	var hitRate float64
+	if total > 0 {
+		hitRate = float64(c.hits) / float64(total) * 100.0
+	}
+
+	return CacheStats{
+		Hits:     c.hits,
+		Misses:   c.misses,
+		Total:    total,
+		HitRate:  hitRate,
+		Capacity: c.cap,
+		Size:     len(c.table),
+	}
+}
+
+// ResetStats resets the hit/miss counters to zero
+func (c *Perch[T]) ResetStats() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.hits = 0
+	c.misses = 0
+}
+
+// CacheStats contains detailed cache statistics
+type CacheStats struct {
+	Hits     uint64  // Number of cache hits
+	Misses   uint64  // Number of cache misses
+	Total    uint64  // Total number of requests (hits + misses)
+	HitRate  float64 // Hit rate as a percentage (0.0 to 100.0)
+	Capacity int     // Cache capacity in number of slots
+	Size     int     // Current number of items in cache
 }

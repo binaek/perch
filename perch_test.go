@@ -29,12 +29,10 @@ import (
 type PerchTestSuite struct {
 	suite.Suite
 	cache *Perch[string]
-	ctx   context.Context
 }
 
 // SetupSuite initializes the test suite
 func (s *PerchTestSuite) SetupSuite() {
-	s.ctx = context.Background()
 	slog.Info("PerchTestSuite SetupSuite start")
 }
 
@@ -97,13 +95,15 @@ func (s *PerchTestSuite) TestBasicGetAndSet() {
 	}
 
 	// First call should load the value
-	value, err := s.cache.Get(s.ctx, key, ttl, loader)
+	value, hit, err := s.cache.Get(s.T().Context(), key, ttl, loader)
 	s.NoError(err)
+	s.False(hit, "First call should be a cache miss")
 	s.Equal(expectedValue, value)
 
 	// Second call should hit cache
-	value, err = s.cache.Get(s.ctx, key, ttl, loader)
+	value, hit, err = s.cache.Get(s.T().Context(), key, ttl, loader)
 	s.NoError(err)
+	s.True(hit, "Second call should be a cache hit")
 	s.Equal(expectedValue, value)
 }
 
@@ -118,16 +118,18 @@ func (s *PerchTestSuite) TestTTLExpiration() {
 	}
 
 	// Load value with short TTL
-	result, err := s.cache.Get(s.ctx, key, shortTTL, loader)
+	result, hit, err := s.cache.Get(s.T().Context(), key, shortTTL, loader)
 	s.NoError(err)
+	s.False(hit, "First call should be a cache miss")
 	s.Equal(value, result)
 
 	// Wait for expiration
 	time.Sleep(shortTTL + 5*time.Millisecond)
 
 	// Should reload due to expiration
-	result, err = s.cache.Get(s.ctx, key, shortTTL, loader)
+	result, hit, err = s.cache.Get(s.T().Context(), key, shortTTL, loader)
 	s.NoError(err)
+	s.False(hit, "After expiration should be a cache miss")
 	s.Equal(value, result)
 }
 
@@ -144,8 +146,9 @@ func (s *PerchTestSuite) TestZeroTTL() {
 
 	// Multiple calls with zero TTL should all call the loader
 	for i := 0; i < 3; i++ {
-		result, err := s.cache.Get(s.ctx, key, 0, loader)
+		result, hit, err := s.cache.Get(s.T().Context(), key, 0, loader)
 		s.NoError(err)
+		s.False(hit, "Zero TTL should always be a cache miss")
 		s.Equal(value, result)
 	}
 
@@ -163,8 +166,9 @@ func (s *PerchTestSuite) TestDelete() {
 	}
 
 	// Load value
-	result, err := s.cache.Get(s.ctx, key, ttl, loader)
+	result, hit, err := s.cache.Get(s.T().Context(), key, ttl, loader)
 	s.NoError(err)
+	s.False(hit, "First call should be a cache miss")
 	s.Equal(value, result)
 
 	// Delete the key
@@ -177,8 +181,9 @@ func (s *PerchTestSuite) TestDelete() {
 		return value, nil
 	}
 
-	result, err = s.cache.Get(s.ctx, key, ttl, loader2)
+	result, hit, err = s.cache.Get(s.T().Context(), key, ttl, loader2)
 	s.NoError(err)
+	s.False(hit, "After deletion should be a cache miss")
 	s.Equal(value, result)
 	s.Equal(1, callCount, "Should reload after deletion")
 }
@@ -199,8 +204,9 @@ func (s *PerchTestSuite) TestPeek() {
 	s.Equal("", peekValue)
 
 	// Load value
-	result, err := s.cache.Get(s.ctx, key, ttl, loader)
+	result, hit, err := s.cache.Get(s.T().Context(), key, ttl, loader)
 	s.NoError(err)
+	s.False(hit, "First call should be a cache miss")
 	s.Equal(value, result)
 
 	// Peek after loading should return true
@@ -228,14 +234,17 @@ func (s *PerchTestSuite) TestLRUEviction() {
 	}
 
 	// Load items in order
-	_, err := cache.Get(s.ctx, "key1", ttl, loader1)
+	_, hit, err := cache.Get(s.T().Context(), "key1", ttl, loader1)
 	s.NoError(err)
+	s.False(hit, "First call should be a cache miss")
 
-	_, err = cache.Get(s.ctx, "key2", ttl, loader2)
+	_, hit, err = cache.Get(s.T().Context(), "key2", ttl, loader2)
 	s.NoError(err)
+	s.False(hit, "First call should be a cache miss")
 
-	_, err = cache.Get(s.ctx, "key3", ttl, loader3)
+	_, hit, err = cache.Get(s.T().Context(), "key3", ttl, loader3)
 	s.NoError(err)
+	s.False(hit, "First call should be a cache miss")
 
 	var peekValue string
 
@@ -276,7 +285,7 @@ func (s *PerchTestSuite) TestConcurrency() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			result, err := s.cache.Get(s.ctx, key, ttl, loader)
+			result, _, err := s.cache.Get(s.T().Context(), key, ttl, loader)
 			s.NoError(err)
 			s.Equal(value, result)
 		}()
@@ -301,7 +310,7 @@ func (s *PerchTestSuite) TestErrorHandling() {
 	}
 
 	// Should return error
-	result, err := s.cache.Get(s.ctx, key, 5*time.Minute, loader)
+	result, _, err := s.cache.Get(s.T().Context(), key, 5*time.Minute, loader)
 	s.Error(err)
 	s.Equal(expectedError, err)
 	s.Equal("", result)
@@ -315,7 +324,7 @@ func (s *PerchTestSuite) TestErrorHandling() {
 
 	// Multiple calls should all call the loader
 	for i := 0; i < 3; i++ {
-		_, err := s.cache.Get(s.ctx, key, 5*time.Minute, loader2)
+		_, _, err := s.cache.Get(s.T().Context(), key, 5*time.Minute, loader2)
 		s.Error(err)
 	}
 
@@ -331,7 +340,7 @@ func (s *PerchTestSuite) TestPanicRecovery() {
 	}
 
 	// Should recover from panic and return error
-	result, err := s.cache.Get(s.ctx, key, 5*time.Minute, loader)
+	result, _, err := s.cache.Get(s.T().Context(), key, 5*time.Minute, loader)
 	s.Error(err)
 	s.Contains(err.Error(), "loader panicked")
 	s.Equal("", result)
@@ -343,7 +352,7 @@ func (s *PerchTestSuite) TestContextCancellation() {
 	value := "cancel-value"
 
 	// Create a context that will be cancelled
-	ctx, cancel := context.WithCancel(s.ctx)
+	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
 	loader := func(ctx context.Context, k string) (string, error) {
@@ -357,7 +366,7 @@ func (s *PerchTestSuite) TestContextCancellation() {
 	}
 
 	// Should handle cancelled context
-	result, err := s.cache.Get(ctx, key, 5*time.Minute, loader)
+	result, _, err := s.cache.Get(ctx, key, 5*time.Minute, loader)
 	s.Error(err)
 	s.Equal(context.Canceled, err)
 	s.Equal("", result)
@@ -370,7 +379,7 @@ func (s *PerchTestSuite) TestEdgeCases() {
 		return "empty-key-value", nil
 	}
 
-	result, err := s.cache.Get(s.ctx, "", 5*time.Minute, loader)
+	result, _, err := s.cache.Get(s.T().Context(), "", 5*time.Minute, loader)
 	s.NoError(err)
 	s.Equal("empty-key-value", result)
 
@@ -380,7 +389,7 @@ func (s *PerchTestSuite) TestEdgeCases() {
 		longKey = longKey[:i] + "a" + longKey[i+1:]
 	}
 
-	result, err = s.cache.Get(s.ctx, longKey, 5*time.Minute, loader)
+	result, _, err = s.cache.Get(s.T().Context(), longKey, 5*time.Minute, loader)
 	s.NoError(err)
 	s.Equal("empty-key-value", result)
 
@@ -389,7 +398,7 @@ func (s *PerchTestSuite) TestEdgeCases() {
 		return "", nil
 	}
 
-	result, err = s.cache.Get(s.ctx, "zero-key", 5*time.Minute, zeroLoader)
+	result, _, err = s.cache.Get(s.T().Context(), "zero-key", 5*time.Minute, zeroLoader)
 	s.NoError(err)
 	s.Equal("", result)
 }
@@ -412,19 +421,23 @@ func (s *PerchTestSuite) TestMoveToFront() {
 		return "value3", nil
 	}
 
-	_, err := cache.Get(s.ctx, "key1", ttl, loader1)
+	_, hit, err := cache.Get(s.T().Context(), "key1", ttl, loader1)
 	s.NoError(err)
+	s.False(hit, "First call should be a cache miss")
 
-	_, err = cache.Get(s.ctx, "key2", ttl, loader2)
+	_, hit, err = cache.Get(s.T().Context(), "key2", ttl, loader2)
 	s.NoError(err)
+	s.False(hit, "First call should be a cache miss")
 
 	// Access key1 to move it to front
-	_, err = cache.Get(s.ctx, "key1", ttl, loader1)
+	_, hit, err = cache.Get(s.T().Context(), "key1", ttl, loader1)
 	s.NoError(err)
+	s.True(hit, "Second call to key1 should be a cache hit")
 
 	// Add key3, should evict key2 (now LRU)
-	_, err = cache.Get(s.ctx, "key3", ttl, loader3)
+	_, hit, err = cache.Get(s.T().Context(), "key3", ttl, loader3)
 	s.NoError(err)
+	s.False(hit, "First call to key3 should be a cache miss")
 
 	// key1 should still be present (moved to front)
 	peekValue, found := cache.Peek("key1")

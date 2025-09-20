@@ -28,12 +28,10 @@ import (
 type TTLTestSuite struct {
 	suite.Suite
 	cache *Perch[string]
-	ctx   context.Context
 }
 
 // SetupSuite initializes the test suite
 func (s *TTLTestSuite) SetupSuite() {
-	s.ctx = context.Background()
 	slog.Info("TTLTestSuite SetupSuite start")
 }
 
@@ -68,13 +66,13 @@ func (s *TTLTestSuite) TestTTLExpiration() {
 	}
 
 	// Load value
-	result, err := s.cache.Get(s.ctx, key, ttl, loader)
+	result, _, err := s.cache.Get(s.T().Context(), key, ttl, loader)
 	s.NoError(err)
 	s.Equal(value, result)
 	s.Equal(1, callCount, "Should call loader once")
 
 	// Immediate access should hit cache
-	result, err = s.cache.Get(s.ctx, key, ttl, loader)
+	result, _, err = s.cache.Get(s.T().Context(), key, ttl, loader)
 	s.NoError(err)
 	s.Equal(value, result)
 	s.Equal(1, callCount, "Should not call loader again")
@@ -83,7 +81,7 @@ func (s *TTLTestSuite) TestTTLExpiration() {
 	time.Sleep(ttl + 10*time.Millisecond)
 
 	// Access after expiration should reload
-	result, err = s.cache.Get(s.ctx, key, ttl, loader)
+	result, _, err = s.cache.Get(s.T().Context(), key, ttl, loader)
 	s.NoError(err)
 	s.Equal(value, result)
 	s.Equal(2, callCount, "Should call loader again after expiration")
@@ -112,22 +110,22 @@ func (s *TTLTestSuite) TestDifferentTTLs() {
 	}
 
 	// Load both values
-	_, err := s.cache.Get(s.ctx, key1, shortTTL, loader1)
+	_, _, err := s.cache.Get(s.T().Context(), key1, shortTTL, loader1)
 	s.NoError(err)
 
-	_, err = s.cache.Get(s.ctx, key2, longTTL, loader2)
+	_, _, err = s.cache.Get(s.T().Context(), key2, longTTL, loader2)
 	s.NoError(err)
 
 	// Wait for short TTL to expire but not long TTL
 	time.Sleep(shortTTL + 10*time.Millisecond)
 
 	// Short TTL should reload
-	_, err = s.cache.Get(s.ctx, key1, shortTTL, loader1)
+	_, _, err = s.cache.Get(s.T().Context(), key1, shortTTL, loader1)
 	s.NoError(err)
 	s.Equal(2, callCount1, "Short TTL should reload")
 
 	// Long TTL should still hit cache
-	_, err = s.cache.Get(s.ctx, key2, longTTL, loader2)
+	_, _, err = s.cache.Get(s.T().Context(), key2, longTTL, loader2)
 	s.NoError(err)
 	s.Equal(1, callCount2, "Long TTL should not reload yet")
 }
@@ -145,7 +143,7 @@ func (s *TTLTestSuite) TestZeroTTL() {
 
 	// Multiple calls with zero TTL should all call loader
 	for i := 0; i < 5; i++ {
-		result, err := s.cache.Get(s.ctx, key, 0, loader)
+		result, _, err := s.cache.Get(s.T().Context(), key, 0, loader)
 		s.NoError(err)
 		s.Equal(value, result)
 	}
@@ -166,7 +164,7 @@ func (s *TTLTestSuite) TestNegativeTTL() {
 
 	// Negative TTL should behave like zero TTL
 	for i := 0; i < 3; i++ {
-		result, err := s.cache.Get(s.ctx, key, -1*time.Second, loader)
+		result, _, err := s.cache.Get(s.T().Context(), key, -1*time.Second, loader)
 		s.NoError(err)
 		s.Equal(value, result)
 	}
@@ -188,7 +186,7 @@ func (s *TTLTestSuite) TestTTLUpdate() {
 	}
 
 	// Load with short TTL
-	_, err := s.cache.Get(s.ctx, key, shortTTL, loader)
+	_, _, err := s.cache.Get(s.T().Context(), key, shortTTL, loader)
 	s.NoError(err)
 	s.Equal(1, callCount)
 
@@ -196,7 +194,7 @@ func (s *TTLTestSuite) TestTTLUpdate() {
 	time.Sleep(shortTTL + 10*time.Millisecond)
 
 	// Reload with longer TTL
-	_, err = s.cache.Get(s.ctx, key, longTTL, loader)
+	_, _, err = s.cache.Get(s.T().Context(), key, longTTL, loader)
 	s.NoError(err)
 	s.Equal(2, callCount)
 
@@ -204,7 +202,7 @@ func (s *TTLTestSuite) TestTTLUpdate() {
 	time.Sleep(shortTTL + 10*time.Millisecond)
 
 	// Should still hit cache due to longer TTL
-	_, err = s.cache.Get(s.ctx, key, longTTL, loader)
+	_, _, err = s.cache.Get(s.T().Context(), key, longTTL, loader)
 	s.NoError(err)
 	s.Equal(2, callCount, "Should not reload due to longer TTL")
 }
@@ -220,7 +218,7 @@ func (s *TTLTestSuite) TestPeekExpiration() {
 	}
 
 	// Load value
-	_, err := s.cache.Get(s.ctx, key, ttl, loader)
+	_, _, err := s.cache.Get(s.T().Context(), key, ttl, loader)
 	s.NoError(err)
 
 	// Peek should return true before expiration
@@ -254,7 +252,7 @@ func (s *TTLTestSuite) TestConcurrentTTL() {
 	}
 
 	// Load value
-	_, err := s.cache.Get(s.ctx, key, ttl, loader)
+	_, _, err := s.cache.Get(s.T().Context(), key, ttl, loader)
 	s.NoError(err)
 
 	// Wait for expiration
@@ -267,7 +265,7 @@ func (s *TTLTestSuite) TestConcurrentTTL() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			result, err := s.cache.Get(s.ctx, key, ttl, loader)
+			result, _, err := s.cache.Get(s.T().Context(), key, ttl, loader)
 			s.NoError(err)
 			s.Equal(value, result)
 		}()

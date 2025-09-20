@@ -27,12 +27,10 @@ import (
 // LRUTestSuite provides specialized tests for LRU eviction behavior
 type LRUTestSuite struct {
 	suite.Suite
-	ctx context.Context
 }
 
 // SetupSuite initializes the test suite
 func (s *LRUTestSuite) SetupSuite() {
-	s.ctx = context.Background()
 	slog.Info("LRUTestSuite SetupSuite start")
 }
 
@@ -67,13 +65,13 @@ func (s *LRUTestSuite) TestBasicLRUEviction() {
 	}
 
 	// Load 3 items (capacity)
-	_, err := cache.Get(s.ctx, "key1", ttl, loaders["key1"])
+	_, _, err := cache.Get(s.T().Context(), "key1", ttl, loaders["key1"])
 	s.NoError(err)
 
-	_, err = cache.Get(s.ctx, "key2", ttl, loaders["key2"])
+	_, _, err = cache.Get(s.T().Context(), "key2", ttl, loaders["key2"])
 	s.NoError(err)
 
-	_, err = cache.Get(s.ctx, "key3", ttl, loaders["key3"])
+	_, _, err = cache.Get(s.T().Context(), "key3", ttl, loaders["key3"])
 	s.NoError(err)
 
 	// All should be present
@@ -85,7 +83,7 @@ func (s *LRUTestSuite) TestBasicLRUEviction() {
 	s.True(found)
 
 	// Add 4th item, should evict key1 (LRU)
-	_, err = cache.Get(s.ctx, "key4", ttl, loaders["key4"])
+	_, _, err = cache.Get(s.T().Context(), "key4", ttl, loaders["key4"])
 	s.NoError(err)
 
 	// key1 should be evicted
@@ -115,21 +113,21 @@ func (s *LRUTestSuite) TestLRUAccessOrder() {
 	}
 
 	// Load 3 items
-	_, err := cache.Get(s.ctx, "key1", ttl, loaders["key1"])
+	_, _, err := cache.Get(s.T().Context(), "key1", ttl, loaders["key1"])
 	s.NoError(err)
 
-	_, err = cache.Get(s.ctx, "key2", ttl, loaders["key2"])
+	_, _, err = cache.Get(s.T().Context(), "key2", ttl, loaders["key2"])
 	s.NoError(err)
 
-	_, err = cache.Get(s.ctx, "key3", ttl, loaders["key3"])
+	_, _, err = cache.Get(s.T().Context(), "key3", ttl, loaders["key3"])
 	s.NoError(err)
 
 	// Access key1 to move it to front (MRU)
-	_, err = cache.Get(s.ctx, "key1", ttl, loaders["key1"])
+	_, _, err = cache.Get(s.T().Context(), "key1", ttl, loaders["key1"])
 	s.NoError(err)
 
 	// Add key4, should evict key2 (now LRU)
-	_, err = cache.Get(s.ctx, "key4", ttl, loaders["key4"])
+	_, _, err = cache.Get(s.T().Context(), "key4", ttl, loaders["key4"])
 	s.NoError(err)
 
 	// key1 should still be present (moved to front)
@@ -155,17 +153,17 @@ func (s *LRUTestSuite) TestLRUWithExpiration() {
 	longTTL := 5 * time.Minute
 
 	// Load items with different TTLs
-	_, err := cache.Get(s.ctx, "short-key", shortTTL, func(ctx context.Context, k string) (string, error) {
+	_, _, err := cache.Get(s.T().Context(), "short-key", shortTTL, func(ctx context.Context, k string) (string, error) {
 		return "short-value", nil
 	})
 	s.NoError(err)
 
-	_, err = cache.Get(s.ctx, "long-key1", longTTL, func(ctx context.Context, k string) (string, error) {
+	_, _, err = cache.Get(s.T().Context(), "long-key1", longTTL, func(ctx context.Context, k string) (string, error) {
 		return "long-value1", nil
 	})
 	s.NoError(err)
 
-	_, err = cache.Get(s.ctx, "long-key2", longTTL, func(ctx context.Context, k string) (string, error) {
+	_, _, err = cache.Get(s.T().Context(), "long-key2", longTTL, func(ctx context.Context, k string) (string, error) {
 		return "long-value2", nil
 	})
 	s.NoError(err)
@@ -174,7 +172,7 @@ func (s *LRUTestSuite) TestLRUWithExpiration() {
 	time.Sleep(shortTTL + 10*time.Millisecond)
 
 	// Add new item, should evict expired short-key first
-	_, err = cache.Get(s.ctx, "new-key", longTTL, func(ctx context.Context, k string) (string, error) {
+	_, _, err = cache.Get(s.T().Context(), "new-key", longTTL, func(ctx context.Context, k string) (string, error) {
 		return "new-value", nil
 	})
 	s.NoError(err)
@@ -208,20 +206,20 @@ func (s *LRUTestSuite) TestLRUDelete() {
 	}
 
 	// Load 3 items
-	_, err := cache.Get(s.ctx, "key1", ttl, loaders["key1"])
+	_, _, err := cache.Get(s.T().Context(), "key1", ttl, loaders["key1"])
 	s.NoError(err)
 
-	_, err = cache.Get(s.ctx, "key2", ttl, loaders["key2"])
+	_, _, err = cache.Get(s.T().Context(), "key2", ttl, loaders["key2"])
 	s.NoError(err)
 
-	_, err = cache.Get(s.ctx, "key3", ttl, loaders["key3"])
+	_, _, err = cache.Get(s.T().Context(), "key3", ttl, loaders["key3"])
 	s.NoError(err)
 
 	// Delete key2
 	cache.Delete("key2")
 
 	// Add key4, should use the slot freed by key2 deletion
-	_, err = cache.Get(s.ctx, "key4", ttl, loaders["key4"])
+	_, _, err = cache.Get(s.T().Context(), "key4", ttl, loaders["key4"])
 	s.NoError(err)
 
 	// key1 and key3 should still be present
@@ -246,17 +244,17 @@ func (s *LRUTestSuite) TestLRUConcurrentAccess() {
 	ttl := 5 * time.Minute
 
 	// Load initial items
-	_, err := cache.Get(s.ctx, "key1", ttl, func(ctx context.Context, k string) (string, error) {
+	_, _, err := cache.Get(s.T().Context(), "key1", ttl, func(ctx context.Context, k string) (string, error) {
 		return "value1", nil
 	})
 	s.NoError(err)
 
-	_, err = cache.Get(s.ctx, "key2", ttl, func(ctx context.Context, k string) (string, error) {
+	_, _, err = cache.Get(s.T().Context(), "key2", ttl, func(ctx context.Context, k string) (string, error) {
 		return "value2", nil
 	})
 	s.NoError(err)
 
-	_, err = cache.Get(s.ctx, "key3", ttl, func(ctx context.Context, k string) (string, error) {
+	_, _, err = cache.Get(s.T().Context(), "key3", ttl, func(ctx context.Context, k string) (string, error) {
 		return "value3", nil
 	})
 	s.NoError(err)
@@ -267,7 +265,7 @@ func (s *LRUTestSuite) TestLRUConcurrentAccess() {
 
 	go func() {
 		defer wg.Done()
-		_, err := cache.Get(s.ctx, "key1", ttl, func(ctx context.Context, k string) (string, error) {
+		_, _, err := cache.Get(s.T().Context(), "key1", ttl, func(ctx context.Context, k string) (string, error) {
 			return "value1", nil
 		})
 		s.NoError(err)
@@ -275,7 +273,7 @@ func (s *LRUTestSuite) TestLRUConcurrentAccess() {
 
 	go func() {
 		defer wg.Done()
-		_, err := cache.Get(s.ctx, "key2", ttl, func(ctx context.Context, k string) (string, error) {
+		_, _, err := cache.Get(s.T().Context(), "key2", ttl, func(ctx context.Context, k string) (string, error) {
 			return "value2", nil
 		})
 		s.NoError(err)
@@ -283,7 +281,7 @@ func (s *LRUTestSuite) TestLRUConcurrentAccess() {
 
 	go func() {
 		defer wg.Done()
-		_, err := cache.Get(s.ctx, "key3", ttl, func(ctx context.Context, k string) (string, error) {
+		_, _, err := cache.Get(s.T().Context(), "key3", ttl, func(ctx context.Context, k string) (string, error) {
 			return "value3", nil
 		})
 		s.NoError(err)
@@ -307,12 +305,12 @@ func (s *LRUTestSuite) TestLRUEdgeCases() {
 	_ = cache1.Reserve()      // Allocate slots
 	ttl := 5 * time.Minute
 
-	_, err := cache1.Get(s.ctx, "key1", ttl, func(ctx context.Context, k string) (string, error) {
+	_, _, err := cache1.Get(s.T().Context(), "key1", ttl, func(ctx context.Context, k string) (string, error) {
 		return "value1", nil
 	})
 	s.NoError(err)
 
-	_, err = cache1.Get(s.ctx, "key2", ttl, func(ctx context.Context, k string) (string, error) {
+	_, _, err = cache1.Get(s.T().Context(), "key2", ttl, func(ctx context.Context, k string) (string, error) {
 		return "value2", nil
 	})
 	s.NoError(err)
@@ -331,7 +329,7 @@ func (s *LRUTestSuite) TestLRUEdgeCases() {
 
 	// Load same key multiple times
 	for i := 0; i < 5; i++ {
-		_, err := cache2.Get(s.ctx, "same-key", ttl, func(ctx context.Context, k string) (string, error) {
+		_, _, err := cache2.Get(s.T().Context(), "same-key", ttl, func(ctx context.Context, k string) (string, error) {
 			return "same-value", nil
 		})
 		s.NoError(err)
@@ -349,17 +347,17 @@ func (s *LRUTestSuite) TestLRUPeekBehavior() {
 	ttl := 5 * time.Minute
 
 	// Load 3 items
-	_, err := cache.Get(s.ctx, "key1", ttl, func(ctx context.Context, k string) (string, error) {
+	_, _, err := cache.Get(s.T().Context(), "key1", ttl, func(ctx context.Context, k string) (string, error) {
 		return "value1", nil
 	})
 	s.NoError(err)
 
-	_, err = cache.Get(s.ctx, "key2", ttl, func(ctx context.Context, k string) (string, error) {
+	_, _, err = cache.Get(s.T().Context(), "key2", ttl, func(ctx context.Context, k string) (string, error) {
 		return "value2", nil
 	})
 	s.NoError(err)
 
-	_, err = cache.Get(s.ctx, "key3", ttl, func(ctx context.Context, k string) (string, error) {
+	_, _, err = cache.Get(s.T().Context(), "key3", ttl, func(ctx context.Context, k string) (string, error) {
 		return "value3", nil
 	})
 	s.NoError(err)
@@ -369,7 +367,7 @@ func (s *LRUTestSuite) TestLRUPeekBehavior() {
 	s.True(found, "key1 should be found by peek")
 
 	// Add key4, should evict key1 (still LRU despite peek)
-	_, err = cache.Get(s.ctx, "key4", ttl, func(ctx context.Context, k string) (string, error) {
+	_, _, err = cache.Get(s.T().Context(), "key4", ttl, func(ctx context.Context, k string) (string, error) {
 		return "value4", nil
 	})
 	s.NoError(err)

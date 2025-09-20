@@ -29,12 +29,10 @@ import (
 type PerformanceTestSuite struct {
 	suite.Suite
 	cache *Perch[string]
-	ctx   context.Context
 }
 
 // SetupSuite initializes the test suite
 func (s *PerformanceTestSuite) SetupSuite() {
-	s.ctx = context.Background()
 	slog.Info("PerformanceTestSuite SetupSuite start")
 }
 
@@ -67,7 +65,7 @@ func (s *PerformanceTestSuite) TestZeroAllocationOnHit() {
 	}
 
 	// Load value first
-	_, err := s.cache.Get(s.ctx, key, ttl, loader)
+	_, _, err := s.cache.Get(s.T().Context(), key, ttl, loader)
 	s.NoError(err)
 
 	// Measure allocations for cache hits
@@ -77,7 +75,7 @@ func (s *PerformanceTestSuite) TestZeroAllocationOnHit() {
 
 	// Perform multiple cache hits
 	for i := 0; i < 1000; i++ {
-		result, err := s.cache.Get(s.ctx, key, ttl, loader)
+		result, _, err := s.cache.Get(s.T().Context(), key, ttl, loader)
 		s.NoError(err)
 		s.Equal(value, result)
 	}
@@ -101,7 +99,7 @@ func (s *PerformanceTestSuite) TestCacheHitPerformance() {
 	}
 
 	// Load value first
-	_, err := s.cache.Get(s.ctx, key, ttl, loader)
+	_, _, err := s.cache.Get(s.T().Context(), key, ttl, loader)
 	s.NoError(err)
 
 	// Measure time for cache hits
@@ -109,7 +107,7 @@ func (s *PerformanceTestSuite) TestCacheHitPerformance() {
 	numHits := 10000
 
 	for i := 0; i < numHits; i++ {
-		result, err := s.cache.Get(s.ctx, key, ttl, loader)
+		result, _, err := s.cache.Get(s.T().Context(), key, ttl, loader)
 		s.NoError(err)
 		s.Equal(value, result)
 	}
@@ -136,7 +134,7 @@ func (s *PerformanceTestSuite) TestCacheMissPerformance() {
 
 	for i := 0; i < numMisses; i++ {
 		key := "miss-key-" + string(rune(i))
-		result, err := s.cache.Get(s.ctx, key, ttl, loader)
+		result, _, err := s.cache.Get(s.T().Context(), key, ttl, loader)
 		s.NoError(err)
 		s.Equal("value-"+key, result)
 	}
@@ -164,7 +162,7 @@ func (s *PerformanceTestSuite) TestLRUEvictionPerformance() {
 
 	for i := 0; i < numOperations; i++ {
 		key := "evict-key-" + string(rune(i%20)) // Cycle through 20 keys
-		result, err := cache.Get(s.ctx, key, ttl, loader)
+		result, _, err := cache.Get(s.T().Context(), key, ttl, loader)
 		s.NoError(err)
 		s.Equal("value-"+key, result)
 	}
@@ -197,7 +195,7 @@ func (s *PerformanceTestSuite) TestConcurrentPerformance() {
 			defer wg.Done()
 			for j := 0; j < operationsPerGoroutine; j++ {
 				key := "concurrent-key-" + string(rune(goroutineID*100+j))
-				result, err := s.cache.Get(s.ctx, key, ttl, loader)
+				result, _, err := s.cache.Get(s.T().Context(), key, ttl, loader)
 				s.NoError(err)
 				s.Equal("value-"+key, result)
 			}
@@ -226,7 +224,7 @@ func (s *PerformanceTestSuite) TestMemoryUsage() {
 	// Load some keys and verify they work
 	for i := 0; i < numKeys; i++ {
 		key := "memory-key-" + string(rune(i))
-		_, err := s.cache.Get(s.ctx, key, ttl, loader)
+		_, _, err := s.cache.Get(s.T().Context(), key, ttl, loader)
 		s.NoError(err)
 	}
 
@@ -250,7 +248,7 @@ func (s *PerformanceTestSuite) TestPeekPerformance() {
 	}
 
 	// Load value first
-	_, err := s.cache.Get(s.ctx, key, ttl, loader)
+	_, _, err := s.cache.Get(s.T().Context(), key, ttl, loader)
 	s.NoError(err)
 
 	// Measure time for peek operations
@@ -282,7 +280,7 @@ func (s *PerformanceTestSuite) TestDeletePerformance() {
 	// Load many keys
 	for i := 0; i < numKeys; i++ {
 		key := "delete-perf-key-" + string(rune(i))
-		_, err := s.cache.Get(s.ctx, key, ttl, loader)
+		_, _, err := s.cache.Get(s.T().Context(), key, ttl, loader)
 		s.NoError(err)
 	}
 
@@ -314,7 +312,7 @@ func (s *PerformanceTestSuite) TestTTLExpirationPerformance() {
 	// Load keys with short TTL
 	for i := 0; i < numKeys; i++ {
 		key := "ttl-perf-key-" + string(rune(i))
-		_, err := s.cache.Get(s.ctx, key, shortTTL, loader)
+		_, _, err := s.cache.Get(s.T().Context(), key, shortTTL, loader)
 		s.NoError(err)
 	}
 
@@ -326,7 +324,7 @@ func (s *PerformanceTestSuite) TestTTLExpirationPerformance() {
 
 	for i := 0; i < numKeys; i++ {
 		key := "ttl-perf-key-" + string(rune(i))
-		result, err := s.cache.Get(s.ctx, key, longTTL, loader)
+		result, _, err := s.cache.Get(s.T().Context(), key, longTTL, loader)
 		s.NoError(err)
 		s.Equal("value-"+key, result)
 	}

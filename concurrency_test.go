@@ -31,12 +31,10 @@ import (
 type ConcurrencyTestSuite struct {
 	suite.Suite
 	cache *Perch[string]
-	ctx   context.Context
 }
 
 // SetupSuite initializes the test suite
 func (s *ConcurrencyTestSuite) SetupSuite() {
-	s.ctx = context.Background()
 	slog.Info("ConcurrencyTestSuite SetupSuite start")
 }
 
@@ -78,9 +76,10 @@ func (s *ConcurrencyTestSuite) TestSingleflightBasic() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			result, err := s.cache.Get(s.ctx, key, ttl, loader)
+			result, _, err := s.cache.Get(s.T().Context(), key, ttl, loader)
 			s.NoError(err)
 			s.Equal(value, result)
+			// hit could be true or false depending on timing
 		}()
 	}
 
@@ -117,7 +116,7 @@ func (s *ConcurrencyTestSuite) TestSingleflightDifferentKeys() {
 			wg.Add(1)
 			go func(k string) {
 				defer wg.Done()
-				result, err := s.cache.Get(s.ctx, k, ttl, loader)
+				result, _, err := s.cache.Get(s.T().Context(), k, ttl, loader)
 				s.NoError(err)
 				s.Equal("value-"+k, result)
 			}(key)
@@ -153,7 +152,7 @@ func (s *ConcurrencyTestSuite) TestSingleflightWithErrors() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			result, err := s.cache.Get(s.ctx, key, ttl, loader)
+			result, _, err := s.cache.Get(s.T().Context(), key, ttl, loader)
 			s.Error(err)
 			s.Equal(expectedError, err)
 			s.Equal("", result)
@@ -194,7 +193,7 @@ func (s *ConcurrencyTestSuite) TestConcurrentAccessDifferentKeys() {
 			wg.Add(1)
 			go func(k string) {
 				defer wg.Done()
-				result, err := s.cache.Get(s.ctx, k, ttl, loader)
+				result, _, err := s.cache.Get(s.T().Context(), k, ttl, loader)
 				s.NoError(err)
 				s.Equal("value-"+k, result)
 			}(key)
@@ -222,7 +221,7 @@ func (s *ConcurrencyTestSuite) TestConcurrentDelete() {
 		return value, nil
 	}
 
-	_, err := s.cache.Get(s.ctx, key, ttl, loader)
+	_, _, err := s.cache.Get(s.T().Context(), key, ttl, loader)
 	s.NoError(err)
 
 	// Concurrently delete and access
@@ -237,7 +236,7 @@ func (s *ConcurrencyTestSuite) TestConcurrentDelete() {
 	go func() {
 		defer wg.Done()
 		// This might hit cache or miss depending on timing
-		result, err := s.cache.Get(s.ctx, key, ttl, loader)
+		result, _, err := s.cache.Get(s.T().Context(), key, ttl, loader)
 		if err == nil {
 			s.Equal(value, result)
 		}
@@ -257,7 +256,7 @@ func (s *ConcurrencyTestSuite) TestConcurrentPeek() {
 		return value, nil
 	}
 
-	_, err := s.cache.Get(s.ctx, key, ttl, loader)
+	_, _, err := s.cache.Get(s.T().Context(), key, ttl, loader)
 	s.NoError(err)
 
 	// Concurrently peek at the same key
@@ -290,7 +289,7 @@ func (s *ConcurrencyTestSuite) TestConcurrentExpiration() {
 	}
 
 	// Load value
-	_, err := s.cache.Get(s.ctx, key, shortTTL, loader)
+	_, _, err := s.cache.Get(s.T().Context(), key, shortTTL, loader)
 	s.NoError(err)
 
 	// Wait for expiration
@@ -303,7 +302,7 @@ func (s *ConcurrencyTestSuite) TestConcurrentExpiration() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			result, err := s.cache.Get(s.ctx, key, shortTTL, loader)
+			result, _, err := s.cache.Get(s.T().Context(), key, shortTTL, loader)
 			s.NoError(err)
 			s.Equal(value, result)
 		}()
@@ -325,7 +324,7 @@ func (s *ConcurrencyTestSuite) TestConcurrentLRUEviction() {
 	// Load initial items
 	for i := 1; i <= 3; i++ {
 		key := fmt.Sprintf("key-%d", i)
-		_, err := cache.Get(s.ctx, key, ttl, func(ctx context.Context, k string) (string, error) {
+		_, _, err := cache.Get(s.T().Context(), key, ttl, func(ctx context.Context, k string) (string, error) {
 			return "value-" + k, nil
 		})
 		s.NoError(err)
@@ -341,7 +340,7 @@ func (s *ConcurrencyTestSuite) TestConcurrentLRUEviction() {
 			if id%2 == 0 {
 				// Access existing key
 				key := fmt.Sprintf("key-%d", (id%3)+1)
-				result, err := cache.Get(s.ctx, key, ttl, func(ctx context.Context, k string) (string, error) {
+				result, _, err := cache.Get(s.T().Context(), key, ttl, func(ctx context.Context, k string) (string, error) {
 					return "value-" + k, nil
 				})
 				s.NoError(err)
@@ -350,7 +349,7 @@ func (s *ConcurrencyTestSuite) TestConcurrentLRUEviction() {
 			} else {
 				// Add new key (will cause eviction)
 				key := fmt.Sprintf("new-key-%d", id)
-				result, err := cache.Get(s.ctx, key, ttl, func(ctx context.Context, k string) (string, error) {
+				result, _, err := cache.Get(s.T().Context(), key, ttl, func(ctx context.Context, k string) (string, error) {
 					return "value-" + k, nil
 				})
 				s.NoError(err)
@@ -381,7 +380,7 @@ func (s *ConcurrencyTestSuite) TestConcurrentZeroTTL() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			result, err := s.cache.Get(s.ctx, key, 0, loader)
+			result, _, err := s.cache.Get(s.T().Context(), key, 0, loader)
 			s.NoError(err)
 			s.Equal(value, result)
 		}()
@@ -412,7 +411,7 @@ func (s *ConcurrencyTestSuite) TestConcurrentPanicRecovery() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			result, err := s.cache.Get(s.ctx, key, 5*time.Minute, loader)
+			result, _, err := s.cache.Get(s.T().Context(), key, 5*time.Minute, loader)
 			s.Error(err)
 			s.Contains(err.Error(), "loader panicked")
 			s.Equal("", result)
