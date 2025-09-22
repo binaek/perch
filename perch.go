@@ -159,7 +159,6 @@ func (c *Perch[T]) Get(ctx context.Context, key string, ttl time.Duration, loade
 		e := &c.slots[idx] // 1-based indexing
 		// Take entry lock to check freshness or wait if loading.
 		e.mu.Lock()
-		c.mu.Unlock()
 
 		// If another goroutine is loading this key, wait.
 		for e.loading {
@@ -172,7 +171,6 @@ func (c *Perch[T]) Get(ctx context.Context, key string, ttl time.Duration, loade
 			e.mu.Unlock()
 
 			// bump MRU safely (don't hold e.mu here)
-			c.mu.Lock()
 			if c.table[key] == idx { // still same slot?
 				c.moveToFront(idx)
 			}
@@ -186,6 +184,7 @@ func (c *Perch[T]) Get(ctx context.Context, key string, ttl time.Duration, loade
 		e.loading = true
 		e.err = nil
 		e.mu.Unlock()
+		c.mu.Unlock()
 		// proceed to load with this existing slot index
 		return c.loadInto(ctx, idx, key, ttl, loader)
 	}
@@ -272,8 +271,10 @@ func (c *Perch[T]) loadInto(ctx context.Context, idx uint32, key string, ttl tim
 			delete(c.table, key)
 			c.unlink(idx)
 			// push to freelist
+			e.mu.Lock()
 			e.key = ""
 			e.inuse = false
+			e.mu.Unlock()
 			e.next = c.free
 			c.free = idx
 		}
