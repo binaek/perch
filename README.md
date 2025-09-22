@@ -329,6 +329,86 @@ if hit {
 - **Concurrency**: Excellent performance under high concurrent load
 - **LRU Operations**: O(1) for most operations
 
+## Benchmark Results
+
+Comprehensive benchmarks demonstrate Perch's exceptional performance across various scenarios. All benchmarks were run on Apple M3 Pro with Go 1.24.
+
+### Core Performance Benchmarks
+
+| Benchmark      | Operations/sec | ns/op | Allocations/op | Bytes/op |
+| -------------- | -------------- | ----- | -------------- | -------- |
+| **Cache Hit**  | 9,110,590      | 129.8 | 0              | 0        |
+| **Cache Miss** | 1,982,652      | 622.3 | 2              | 45       |
+| **Peek**       | 5,787,956      | 192.9 | 0              | 0        |
+| **Delete**     | 12,150,006     | 98.0  | 1              | 21       |
+
+### Concurrent Performance
+
+| Benchmark                | Operations/sec | ns/op | Allocations/op | Bytes/op |
+| ------------------------ | -------------- | ----- | -------------- | -------- |
+| **Concurrent Access**    | 6,404,605      | 188.0 | 1              | 16       |
+| **Concurrent Mixed Ops** | 6,479,191      | 181.4 | 1              | 16       |
+| **Singleflight**         | 9,111,879      | 131.9 | 0              | 0        |
+
+### Cache Size Scaling
+
+| Cache Size               | Operations/sec | ns/op | Allocations/op | Bytes/op |
+| ------------------------ | -------------- | ----- | -------------- | -------- |
+| **Small (10 entries)**   | 2,762,568      | 436.1 | 2              | 48       |
+| **Medium (100 entries)** | 2,498,115      | 469.9 | 2              | 47       |
+| **Large (1000 entries)** | 3,599,035      | 403.1 | 2              | 37       |
+
+### Data Type Performance
+
+| Data Type  | Operations/sec | ns/op | Allocations/op | Bytes/op |
+| ---------- | -------------- | ----- | -------------- | -------- |
+| **String** | 2,570,358      | 473.8 | 2              | 51       |
+| **Int**    | 2,672,947      | 452.1 | 1              | 24       |
+| **Struct** | 2,622,630      | 463.1 | 2              | 52       |
+
+### Specialized Operations
+
+| Benchmark          | Operations/sec | ns/op | Allocations/op | Bytes/op |
+| ------------------ | -------------- | ----- | -------------- | -------- |
+| **LRU Eviction**   | 2,741,290      | 432.7 | 2              | 48       |
+| **TTL Expiration** | 6,554,294      | 181.1 | 1              | 16       |
+| **Zero TTL**       | 4,923,733      | 247.5 | 2              | 62       |
+| **Memory Usage**   | 4,601,263      | 230.7 | 3              | 55.86    |
+
+### Statistics Operations
+
+| Benchmark                | Operations/sec | ns/op | Allocations/op | Bytes/op |
+| ------------------------ | -------------- | ----- | -------------- | -------- |
+| **Hit Rate Calculation** | 303,347,949    | 3.942 | 0              | 0        |
+| **Stats Calculation**    | 217,571,858    | 5.535 | 0              | 0        |
+
+### Key Performance Highlights
+
+- **Zero Allocation on Hit**: Cache hits produce 0 allocations, making them extremely efficient
+- **High Throughput**: Over 9M operations per second for cache hits
+- **Excellent Concurrency**: Maintains high performance under concurrent load
+- **Memory Efficient**: Minimal memory overhead with bounded allocations
+- **Fast Statistics**: Hit rate and stats calculations are extremely fast (sub-10ns)
+- **Scalable**: Performance remains consistent across different cache sizes
+
+### Running Benchmarks
+
+To run the benchmarks yourself:
+
+```bash
+# Run all benchmarks
+go test -bench=. -benchmem
+
+# Run specific benchmarks
+go test -bench=BenchmarkCacheHit -benchmem
+
+# Run with more iterations for better accuracy
+go test -bench=. -benchmem -benchtime=10s
+
+# Run with CPU profiling
+go test -bench=. -benchmem -cpuprofile=cpu.prof
+```
+
 ## LRU Eviction Policy
 
 Perch implements a sophisticated Least Recently Used (LRU) eviction policy to manage cache capacity efficiently. Here's how it works:
@@ -434,7 +514,11 @@ The cache pre-allocates all memory during `Reserve()`, preventing runtime alloca
 
 ## Testing
 
-Run the test suite:
+Perch includes comprehensive test coverage with multiple test suites and extensive benchmarks.
+
+### Test Suites
+
+Run the complete test suite:
 
 ```bash
 go test ./...
@@ -448,7 +532,58 @@ go test -run TestPerformanceTestSuite
 go test -run TestConcurrencyTestSuite
 go test -run TestLRUTestSuite
 go test -run TestTTLTestSuite
+go test -run TestHitRateTestSuite
 ```
+
+### Benchmark Tests
+
+Run all benchmarks:
+
+```bash
+go test -bench=. -benchmem
+```
+
+Run specific benchmarks:
+
+```bash
+# Core performance
+go test -bench=BenchmarkCacheHit -benchmem
+go test -bench=BenchmarkCacheMiss -benchmem
+
+# Concurrency tests
+go test -bench=BenchmarkConcurrentAccess -benchmem
+go test -bench=BenchmarkSingleflight -benchmem
+
+# Memory allocation tests
+go test -bench=BenchmarkCacheHitWithAllocationTracking -benchmem
+go test -bench=BenchmarkMemoryUsage -benchmem
+
+# Different cache sizes
+go test -bench=BenchmarkDifferentSizes -benchmem
+
+# Different data types
+go test -bench=BenchmarkDifferentDataTypes -benchmem
+```
+
+### Test Coverage
+
+The test suite includes:
+
+- **Unit Tests**: Basic functionality, edge cases, and error handling
+- **Performance Tests**: Memory allocation tracking and performance validation
+- **Concurrency Tests**: Thread safety, singleflight behavior, and race conditions
+- **LRU Tests**: Eviction policy validation and access pattern testing
+- **TTL Tests**: Time-to-live expiration and refresh behavior
+- **Hit Rate Tests**: Statistics accuracy and monitoring
+- **Benchmark Tests**: Comprehensive performance measurement across all operations
+
+### Continuous Integration
+
+The project includes GitHub Actions for automated testing:
+
+- Runs all test suites on every commit
+- Executes benchmarks for performance regression detection
+- Validates code coverage and quality metrics
 
 ## License
 
