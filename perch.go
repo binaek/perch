@@ -130,7 +130,8 @@ func (c *Perch[T]) Reserve() error {
 }
 
 // Get returns cached value if present+fresh. Otherwise calls loader once per key,
-// caches result with TTL > 0, and returns it. ttl<=0 means "do not cache".
+// caches result with TTL >= 0, and returns it. ttl==0 means "cache indefinitely", ttl<0 means "do not cache".
+// When ttl<0, the cache is bypassed and the loader is always called (preserving singleflight for concurrent requests).
 // Returns (value, cacheHit, error) where cacheHit indicates if the value was found in cache.
 func (c *Perch[T]) Get(ctx context.Context, key string, ttl time.Duration, loader Loader[T]) (T, bool, error) {
 	if err := c.Reserve(); err != nil {
@@ -139,19 +140,6 @@ func (c *Perch[T]) Get(ctx context.Context, key string, ttl time.Duration, loade
 
 	var zero T
 	now := time.Now() // cache this for perf
-
-	// if the provided ttl is 0, we should not cache
-	if ttl <= 0 {
-		// do not do anything - just call the loader and get out
-		// the rest of this logic does a lot of things to effectively manage contention
-		// but we don't need to do that if we're not caching
-		val, err := loader(ctx, key)
-		// Count as a miss since we're not caching
-		c.mu.Lock()
-		c.misses++
-		c.mu.Unlock()
-		return val, false, err
-	}
 
 	// Fast path: lookup under global lock.
 	c.mu.Lock()
@@ -164,20 +152,56 @@ func (c *Perch[T]) Get(ctx context.Context, key string, ttl time.Duration, loade
 		for e.loading {
 			e.cv.Wait()
 		}
-		// Fresh?
-		if e.inuse && !e.expires.IsZero() && now.Before(e.expires) {
-			// copy under e.mu, then release before taking c.mu
-			v := e.val
+		// After waiting, check if we got a value or error
+		// If there was an error, return it
+		if e.err != nil {
+			err := e.err
 			e.mu.Unlock()
-
-			// bump MRU safely (don't hold e.mu here)
-			if c.table[key] == idx { // still same slot?
-				c.moveToFront(idx)
-			}
-			c.hits++ // increment hit counter
 			c.mu.Unlock()
+			return *new(T), false, err
+		}
 
-			return v, true, nil
+		// If ttl < 0, handle "do not cache" semantics
+		if ttl < 0 {
+			// If entry has a cached expiry, it was cached from a previous ttl>=0 call
+			// Bypass it and force reload to honor "do not cache" semantics
+			if e.inuse && !e.expires.IsZero() && now.Before(e.expires) {
+				// This is a cached entry, bypass it
+				e.loading = true
+				e.err = nil
+				e.mu.Unlock()
+				c.mu.Unlock()
+				// proceed to load with this existing slot index
+				return c.loadInto(ctx, idx, key, ttl, loader)
+			}
+			// If expires.IsZero(), this was just loaded with ttl<0
+			// Return the value to preserve singleflight (all waiters get same value)
+			// Note: inuse might be false if entry was removed, but value is still valid
+			if e.expires.IsZero() && e.err == nil {
+				v := e.val
+				e.mu.Unlock()
+				c.mu.Unlock()
+				return v, false, nil
+			}
+		}
+
+		// After waiting, check if we got a value (even if not cached due to ttl<0)
+		if e.inuse && e.err == nil {
+			// Check if it's a cached (fresh) entry
+			if !e.expires.IsZero() && now.Before(e.expires) {
+				// copy under e.mu, then release before taking c.mu
+				v := e.val
+				e.mu.Unlock()
+
+				// bump MRU safely (don't hold e.mu here)
+				if c.table[key] == idx { // still same slot?
+					c.moveToFront(idx)
+				}
+				c.hits++ // increment hit counter
+				c.mu.Unlock()
+
+				return v, true, nil
+			}
 		}
 
 		// Stale: we'll (re)load below.
@@ -249,22 +273,33 @@ func (c *Perch[T]) loadInto(ctx context.Context, idx uint32, key string, ttl tim
 	now := time.Now()
 
 	e.mu.Lock()
-	if err != nil || ttl <= 0 {
-		// On error or no-cache request, clear expiry to mark as uncached.
+	if err != nil {
+		// On error, clear expiry and zero value
 		e.expires = time.Time{}
 		e.val = *new(T) // zero it
 		e.err = err
+	} else if ttl < 0 {
+		// On no-cache request (ttl<0), set value for waiters but mark as uncached
+		e.expires = time.Time{}
+		e.val = val // keep value for waiters
+		e.err = nil
 	} else {
-		e.val = val
 		e.expires = now.Add(ttl)
+		if ttl == 0 {
+			// set expiry to 99 years from now
+			e.expires = time.Now().Add(99 * 365 * 24 * time.Hour)
+		}
+		e.val = val
 		e.err = nil
 	}
 	e.loading = false
 	e.mu.Unlock()
 	e.cv.Broadcast()
 
-	// If error or ttl<=0, remove from cache map/LRU (but still woke waiters).
-	if err != nil || ttl <= 0 {
+	// If error or ttl<0, remove from cache map/LRU (but still wake up waiters).
+	// Note: ttl==0 means cache indefinitely, so we keep it in cache.
+	// For errors, waiters already got the error via singleflight, now remove entry
+	if err != nil || ttl < 0 {
 		c.mu.Lock()
 		// Ensure idx still maps to key (it might, unless evicted/raced).
 		if c.table[key] == idx {
@@ -279,7 +314,11 @@ func (c *Perch[T]) loadInto(ctx context.Context, idx uint32, key string, ttl tim
 			c.free = idx
 		}
 		c.mu.Unlock()
-		return *new(T), false, err
+		if err != nil {
+			return *new(T), false, err
+		}
+		// For ttl<0, return the value (not cached, but singleflight worked)
+		return val, false, nil
 	}
 
 	// Success with caching: bump to MRU (cheap if already at head).

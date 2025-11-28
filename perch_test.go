@@ -144,15 +144,19 @@ func (s *PerchTestSuite) TestZeroTTL() {
 		return value, nil
 	}
 
-	// Multiple calls with zero TTL should all call the loader
+	// Multiple calls with TTL=0 (indefinite caching) should only call loader once
 	for i := 0; i < 3; i++ {
 		result, hit, err := s.cache.Get(s.T().Context(), key, 0, loader)
 		s.NoError(err)
-		s.False(hit, "Zero TTL should always be a cache miss")
+		if i == 0 {
+			s.False(hit, "First call with TTL=0 should be a cache miss")
+		} else {
+			s.True(hit, "Subsequent calls with TTL=0 should be cache hits")
+		}
 		s.Equal(value, result)
 	}
 
-	s.Equal(3, callCount, "Loader should be called for each request with zero TTL")
+	s.Equal(1, callCount, "Loader should be called only once with TTL=0 (indefinite caching)")
 }
 
 // TestDelete tests the Delete functionality

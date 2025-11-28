@@ -188,20 +188,24 @@ func (s *HitRateTestSuite) TestHitRateWithZeroTTL() {
 		return value, nil
 	}
 
-	// Multiple calls with zero TTL should all be misses
+	// Multiple calls with TTL=0 (indefinite caching) - first miss, rest hits
 	for i := 0; i < 5; i++ {
 		_, hit, err := s.cache.Get(s.T().Context(), key, 0, loader)
 		s.NoError(err)
-		s.False(hit, "Zero TTL should always be a cache miss")
+		if i == 0 {
+			s.False(hit, "First call with TTL=0 should be a cache miss")
+		} else {
+			s.True(hit, "Subsequent calls with TTL=0 should be cache hits")
+		}
 	}
 
-	// All misses
+	// Should have 1 miss and 4 hits
 	hitRate := s.cache.HitRate()
-	s.Equal(0.0, hitRate, "Hit rate with zero TTL should be 0")
+	s.Equal(80.0, hitRate, "Hit rate with TTL=0 should be 80% (4 hits, 1 miss)")
 
 	stats := s.cache.Stats()
-	s.Equal(uint64(0), stats.Hits)
-	s.Equal(uint64(5), stats.Misses)
+	s.Equal(uint64(4), stats.Hits)
+	s.Equal(uint64(1), stats.Misses)
 	s.Equal(uint64(5), stats.Total)
 }
 

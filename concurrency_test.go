@@ -161,10 +161,10 @@ func (s *ConcurrencyTestSuite) TestSingleflightWithErrors() {
 
 	wg.Wait()
 
-	// Note: Perch doesn't implement singleflight for errors, so each call will invoke the loader
-	// This is because errors are not cached and each goroutine will try to load independently
+	// Errors use singleflight: concurrent requests for the same key will only call the loader once
+	// All waiters will receive the same error, but errors are not cached for future requests
 	finalCallCount := atomic.LoadInt32(&callCount)
-	s.Equal(int32(numGoroutines), finalCallCount, "Each error call should invoke the loader since errors aren't cached")
+	s.Equal(int32(1), finalCallCount, "Errors should use singleflight: concurrent requests should only call loader once")
 }
 
 // TestConcurrentAccessDifferentKeys tests concurrent access to different keys
@@ -373,14 +373,14 @@ func (s *ConcurrencyTestSuite) TestConcurrentZeroTTL() {
 		return value, nil
 	}
 
-	// Concurrently access with zero TTL
+	// Concurrently access with TTL=-1 (no caching)
 	var wg sync.WaitGroup
 	numGoroutines := 10
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			result, _, err := s.cache.Get(s.T().Context(), key, 0, loader)
+			result, _, err := s.cache.Get(s.T().Context(), key, -1, loader)
 			s.NoError(err)
 			s.Equal(value, result)
 		}()
@@ -388,9 +388,10 @@ func (s *ConcurrencyTestSuite) TestConcurrentZeroTTL() {
 
 	wg.Wait()
 
-	// Should call loader for each request (no caching with zero TTL)
+	// With TTL=-1, singleflight ensures only one loader call for concurrent requests
+	// But sequential requests will call loader again (no caching)
 	finalCallCount := atomic.LoadInt32(&callCount)
-	s.Equal(int32(numGoroutines), finalCallCount, "Should call loader for each zero TTL request")
+	s.Equal(int32(1), finalCallCount, "Should call loader once due to singleflight with TTL=-1")
 }
 
 // TestConcurrentPanicRecovery tests concurrent access with panicking loaders
@@ -420,10 +421,10 @@ func (s *ConcurrencyTestSuite) TestConcurrentPanicRecovery() {
 
 	wg.Wait()
 
-	// Note: Panics are treated like errors and not cached, so each goroutine will try to load
-	// This is because panics result in errors which are not cached
+	// Panics are treated like errors and use singleflight: concurrent requests will only call the loader once
+	// All waiters will receive the same error, but errors are not cached for future requests
 	finalCallCount := atomic.LoadInt32(&callCount)
-	s.Equal(int32(numGoroutines), finalCallCount, "Each panic call should invoke the loader since panics aren't cached")
+	s.Equal(int32(1), finalCallCount, "Panics should use singleflight: concurrent requests should only call loader once")
 }
 
 // TestConcurrencyTestSuite runs the concurrency test suite

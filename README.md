@@ -69,6 +69,13 @@ func main() {
   // loader function won't be called again
   fmt.Printf("Value: %s, Cache hit: %t\n", value, hit) // "value-for-my-key", true
 
+  // ttl == 0 pins the value (expires ~99 years later internally)
+  cache.Get(ctx, "pinned-key", 0, loader)
+
+  // ttl < 0 bypasses caching but still shares the loader result
+  value, hit, err = cache.Get(ctx, "live-key", -1, loader)
+  fmt.Printf("Value: %s, Cache hit: %t\n", value, hit) // hit will always be false
+
   // Peek at the value without affecting LRU order
   peekValue, found := cache.Peek("my-key")
   if found {
@@ -76,6 +83,18 @@ func main() {
   }
 }
 ```
+
+## TTL Semantics & Singleflight
+
+Perch accepts any TTL and adapts its behavior:
+
+- `ttl > 0`: cache with the provided expiry
+- `ttl == 0`: cache indefinitely (implemented as a ~99-year expiry) while still respecting LRU eviction
+- `ttl < 0`: bypass caching entirely; the loader still runs once per key thanks to singleflight, and all waiters receive the same result before the entry is evicted
+
+This flexibility makes it easy to mix cached, pinned, and real-time reads while still benefiting from the built-in singleflight protections.
+
+> **Note:** TTL changes take effect only when the loader runs. If a subsequent `Get` call uses a different TTL while the cached value is still fresh, Perch keeps the original expiry until the entry is reloaded (e.g., after it expires, is deleted, or you force a reload with `ttl < 0`). This prevents one caller from unintentionally shortening or lengthening the lifetime chosen by the loader that populated the cache.
 
 ## API Reference
 
@@ -103,7 +122,7 @@ Retrieves a value from the cache. If the value is not present or has expired, th
 
 - `ctx`: Context for cancellation and timeouts
 - `key`: Cache key
-- `ttl`: Time-to-live for the cached value (0 or negative means no caching)
+- `ttl`: Time-to-live for the cached value (`0` caches indefinitely, `ttl < 0` bypasses caching, and TTL changes apply when the loader runs)
 - `loader`: Function to load the value if not in cache
 - Returns: `(value, cacheHit, error)` where `cacheHit` indicates if the value was found in cache
 
@@ -219,13 +238,12 @@ for i := 0; i < 1000; i++ {
 ### Hit Rate Best Practices
 
 1. **Monitor Regularly**: Check hit rates during development and production
-2. **Set Targets**: Aim for hit rates above 80% for most use cases
-3. **Analyze Patterns**: Low hit rates may indicate:
+1. **Set Targets**: Aim for hit rates above 80% for most use cases
+1. **Analyze Patterns**: Low hit rates may indicate:
    - Cache size too small
    - TTL too short
    - Poor access patterns
    - Need for different eviction strategy
-4. **Reset Periodically**: Use `ResetStats()` to monitor performance over specific time periods
 
 ```go
 // Example: Monitor cache performance over time windows
@@ -248,14 +266,16 @@ func monitorCache(cache *perch.Perch[string], duration time.Duration) {
 
 ## Advanced Usage
 
-### Zero TTL (No Caching)
+### Explicit TTL Controls
 
-Pass 0 or negative TTL to disable caching for specific requests:
+Use TTL values to dial in caching semantics per call:
 
 ```go
-// This will always call the loader function
-value, hit, err := cache.Get(ctx, "key", 0, loader)
-// hit will always be false for zero TTL
+// Pin the value indefinitely (subject to LRU eviction when capacity is full)
+cache.Get(ctx, "key", 0, loader)
+
+// Disable caching for this call; the loader still runs once due to singleflight
+value, hit, err := cache.Get(ctx, "key", -1, loader) // hit is always false
 ```
 
 ### Error Handling
