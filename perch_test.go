@@ -41,7 +41,7 @@ func (s *PerchTestSuite) BeforeTest(suiteName, testName string) {
 	slog.Info("BeforeTest start", "TestSuite", "PerchTestSuite", "TestName", testName)
 	// Create a fresh cache for each test - enough bytes for 10 string entries
 	s.cache = New[string](160) // 10 * 16 bytes = 160 bytes
-	_ = s.cache.Reserve()      // Allocate slots
+	s.cache.Reserve()          // Allocate slots
 }
 
 // AfterTest runs after each test
@@ -68,8 +68,7 @@ func (s *PerchTestSuite) TestNew() {
 	s.Equal(0, len(cache.slots)) // starts empty before Reserve()
 
 	// Reserve slots
-	err := cache.Reserve()
-	s.NoError(err)
+	cache.Reserve()
 	s.Equal(6, len(cache.slots)) // capacity + 1 for 1-based indexing, allocated after Reserve()
 
 	// Test panic on invalid capacity
@@ -223,7 +222,7 @@ func (s *PerchTestSuite) TestPeek() {
 func (s *PerchTestSuite) TestLRUEviction() {
 	// Create cache with small capacity - 2 string entries
 	cache := New[string](32) // 2 * 16 bytes = 32 bytes
-	_ = cache.Reserve()      // Allocate slots
+	cache.Reserve()          // Allocate slots
 	ttl := 5 * time.Minute
 
 	// Load 3 items (exceeds capacity)
@@ -411,7 +410,7 @@ func (s *PerchTestSuite) TestEdgeCases() {
 func (s *PerchTestSuite) TestMoveToFront() {
 	// Create cache with capacity 2 - 2 string entries
 	cache := New[string](32) // 2 * 16 bytes = 32 bytes
-	_ = cache.Reserve()      // Allocate slots
+	cache.Reserve()          // Allocate slots
 	ttl := 5 * time.Minute
 
 	// Load two items

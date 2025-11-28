@@ -38,7 +38,7 @@ func (s *HitRateTestSuite) SetupSuite() {
 func (s *HitRateTestSuite) BeforeTest(suiteName, testName string) {
 	slog.Info("BeforeTest start", "TestSuite", "HitRateTestSuite", "TestName", testName)
 	s.cache = New[string](160) // 10 * 16 bytes = 160 bytes
-	_ = s.cache.Reserve()      // Allocate slots
+	s.cache.Reserve()          // Allocate slots
 }
 
 // AfterTest runs after each test

@@ -40,7 +40,7 @@ func (s *PerformanceTestSuite) SetupSuite() {
 func (s *PerformanceTestSuite) BeforeTest(suiteName, testName string) {
 	slog.Info("BeforeTest start", "TestSuite", "PerformanceTestSuite", "TestName", testName)
 	s.cache = New[string](1600) // 100 * 16 bytes = 1600 bytes for performance testing
-	_ = s.cache.Reserve()       // Allocate slots
+	s.cache.Reserve()           // Allocate slots
 }
 
 // AfterTest runs after each test
@@ -147,7 +147,7 @@ func (s *PerformanceTestSuite) TestCacheMissPerformance() {
 // TestLRUEvictionPerformance tests the performance of LRU eviction
 func (s *PerformanceTestSuite) TestLRUEvictionPerformance() {
 	cache := New[string](160) // 10 * 16 bytes = 160 bytes, small cache to force evictions
-	_ = cache.Reserve()       // Allocate slots
+	cache.Reserve()           // Allocate slots
 	ttl := 5 * time.Minute
 
 	loader := func(ctx context.Context, k string) (string, error) {

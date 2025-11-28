@@ -26,7 +26,7 @@ import (
 // BenchmarkCacheHit benchmarks cache hit performance
 func BenchmarkCacheHit(b *testing.B) {
 	cache := New[string](1600) // 100 * 16 bytes = 1600 bytes
-	_ = cache.Reserve()
+	cache.Reserve()
 
 	key := "benchmark-hit-key"
 	value := "benchmark-hit-value"
@@ -50,7 +50,7 @@ func BenchmarkCacheHit(b *testing.B) {
 // BenchmarkCacheMiss benchmarks cache miss performance
 func BenchmarkCacheMiss(b *testing.B) {
 	cache := New[string](1600) // 100 * 16 bytes = 1600 bytes
-	_ = cache.Reserve()
+	cache.Reserve()
 
 	ttl := 5 * time.Minute
 
@@ -74,7 +74,7 @@ func BenchmarkCacheMiss(b *testing.B) {
 // BenchmarkCacheHitWithAllocationTracking benchmarks cache hits with allocation tracking
 func BenchmarkCacheHitWithAllocationTracking(b *testing.B) {
 	cache := New[string](1600) // 100 * 16 bytes = 1600 bytes
-	_ = cache.Reserve()
+	cache.Reserve()
 
 	key := "allocation-hit-key"
 	value := "allocation-hit-value"
@@ -107,7 +107,7 @@ func BenchmarkCacheHitWithAllocationTracking(b *testing.B) {
 // BenchmarkPeek benchmarks Peek operation performance
 func BenchmarkPeek(b *testing.B) {
 	cache := New[string](1600) // 100 * 16 bytes = 1600 bytes
-	_ = cache.Reserve()
+	cache.Reserve()
 
 	key := "peek-key"
 	value := "peek-value"
@@ -131,7 +131,7 @@ func BenchmarkPeek(b *testing.B) {
 // BenchmarkDelete benchmarks Delete operation performance
 func BenchmarkDelete(b *testing.B) {
 	cache := New[string](1600) // 100 * 16 bytes = 1600 bytes
-	_ = cache.Reserve()
+	cache.Reserve()
 
 	ttl := 5 * time.Minute
 
@@ -159,7 +159,7 @@ func BenchmarkDelete(b *testing.B) {
 // BenchmarkConcurrentAccess benchmarks concurrent access patterns
 func BenchmarkConcurrentAccess(b *testing.B) {
 	cache := New[string](1600) // 100 * 16 bytes = 1600 bytes
-	_ = cache.Reserve()
+	cache.Reserve()
 
 	ttl := 5 * time.Minute
 	numKeys := 10
@@ -189,7 +189,7 @@ func BenchmarkConcurrentAccess(b *testing.B) {
 // BenchmarkLRUEviction benchmarks LRU eviction performance
 func BenchmarkLRUEviction(b *testing.B) {
 	cache := New[string](160) // 10 * 16 bytes = 160 bytes, small cache to force evictions
-	_ = cache.Reserve()
+	cache.Reserve()
 
 	ttl := 5 * time.Minute
 
@@ -222,7 +222,7 @@ func BenchmarkDifferentSizes(b *testing.B) {
 	for _, size := range sizes {
 		b.Run(size.name, func(b *testing.B) {
 			cache := New[string](size.bytes)
-			_ = cache.Reserve()
+			cache.Reserve()
 
 			ttl := 5 * time.Minute
 			loader := func(ctx context.Context, k string) (string, error) {
@@ -247,7 +247,7 @@ func BenchmarkDifferentDataTypes(b *testing.B) {
 	// String cache
 	b.Run("String", func(b *testing.B) {
 		cache := New[string](1600)
-		_ = cache.Reserve()
+		cache.Reserve()
 
 		ttl := 5 * time.Minute
 		loader := func(ctx context.Context, k string) (string, error) {
@@ -268,7 +268,7 @@ func BenchmarkDifferentDataTypes(b *testing.B) {
 	// Int cache
 	b.Run("Int", func(b *testing.B) {
 		cache := New[int](1600)
-		_ = cache.Reserve()
+		cache.Reserve()
 
 		ttl := 5 * time.Minute
 		loader := func(ctx context.Context, k string) (int, error) {
@@ -295,7 +295,7 @@ func BenchmarkDifferentDataTypes(b *testing.B) {
 
 	b.Run("Struct", func(b *testing.B) {
 		cache := New[TestStruct](1600)
-		_ = cache.Reserve()
+		cache.Reserve()
 
 		ttl := 5 * time.Minute
 		loader := func(ctx context.Context, k string) (TestStruct, error) {
@@ -321,7 +321,7 @@ func BenchmarkDifferentDataTypes(b *testing.B) {
 // BenchmarkTTLExpiration benchmarks TTL expiration handling
 func BenchmarkTTLExpiration(b *testing.B) {
 	cache := New[string](1600)
-	_ = cache.Reserve()
+	cache.Reserve()
 
 	shortTTL := 1 * time.Millisecond
 	longTTL := 5 * time.Minute
@@ -353,7 +353,7 @@ func BenchmarkTTLExpiration(b *testing.B) {
 // BenchmarkZeroTTL benchmarks zero TTL (no caching) performance
 func BenchmarkZeroTTL(b *testing.B) {
 	cache := New[string](1600)
-	_ = cache.Reserve()
+	cache.Reserve()
 
 	loader := func(ctx context.Context, k string) (string, error) {
 		time.Sleep(1 * time.Microsecond) // Simulate work
@@ -374,7 +374,7 @@ func BenchmarkZeroTTL(b *testing.B) {
 // BenchmarkSingleflight benchmarks singleflight behavior
 func BenchmarkSingleflight(b *testing.B) {
 	cache := New[string](1600)
-	_ = cache.Reserve()
+	cache.Reserve()
 
 	key := "singleflight-key"
 	value := "singleflight-value"
@@ -405,7 +405,7 @@ func BenchmarkSingleflight(b *testing.B) {
 // BenchmarkMemoryUsage benchmarks memory usage patterns
 func BenchmarkMemoryUsage(b *testing.B) {
 	cache := New[string](1600)
-	_ = cache.Reserve()
+	cache.Reserve()
 
 	ttl := 5 * time.Minute
 	loader := func(ctx context.Context, k string) (string, error) {
@@ -432,7 +432,7 @@ func BenchmarkMemoryUsage(b *testing.B) {
 // BenchmarkHitRateCalculation benchmarks hit rate calculation performance
 func BenchmarkHitRateCalculation(b *testing.B) {
 	cache := New[string](1600)
-	_ = cache.Reserve()
+	cache.Reserve()
 
 	ttl := 5 * time.Minute
 	loader := func(ctx context.Context, k string) (string, error) {
@@ -460,7 +460,7 @@ func BenchmarkHitRateCalculation(b *testing.B) {
 // BenchmarkStatsCalculation benchmarks stats calculation performance
 func BenchmarkStatsCalculation(b *testing.B) {
 	cache := New[string](1600)
-	_ = cache.Reserve()
+	cache.Reserve()
 
 	ttl := 5 * time.Minute
 	loader := func(ctx context.Context, k string) (string, error) {
@@ -488,7 +488,7 @@ func BenchmarkStatsCalculation(b *testing.B) {
 // BenchmarkConcurrentMixedOperations benchmarks mixed concurrent operations
 func BenchmarkConcurrentMixedOperations(b *testing.B) {
 	cache := New[string](1600)
-	_ = cache.Reserve()
+	cache.Reserve()
 
 	ttl := 5 * time.Minute
 	loader := func(ctx context.Context, k string) (string, error) {
@@ -527,7 +527,7 @@ func BenchmarkConcurrentMixedOperations(b *testing.B) {
 // BenchmarkCacheReset benchmarks cache reset performance
 func BenchmarkCacheReset(b *testing.B) {
 	cache := New[string](1600)
-	_ = cache.Reserve()
+	cache.Reserve()
 
 	ttl := 5 * time.Minute
 	loader := func(ctx context.Context, k string) (string, error) {

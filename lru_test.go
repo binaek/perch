@@ -53,7 +53,7 @@ func (s *LRUTestSuite) TearDownSuite() {
 // TestBasicLRUEviction tests basic LRU eviction
 func (s *LRUTestSuite) TestBasicLRUEviction() {
 	cache := New[string](48) // 3 * 16 bytes = 48 bytes
-	_ = cache.Reserve()      // Allocate slots
+	cache.Reserve()          // Allocate slots
 	ttl := 5 * time.Minute
 
 	// Create loaders for different keys
@@ -102,7 +102,7 @@ func (s *LRUTestSuite) TestBasicLRUEviction() {
 // TestLRUAccessOrder tests that access order affects eviction
 func (s *LRUTestSuite) TestLRUAccessOrder() {
 	cache := New[string](48) // 3 * 16 bytes = 48 bytes
-	_ = cache.Reserve()      // Allocate slots
+	cache.Reserve()          // Allocate slots
 	ttl := 5 * time.Minute
 
 	loaders := map[string]func(context.Context, string) (string, error){
@@ -148,7 +148,7 @@ func (s *LRUTestSuite) TestLRUAccessOrder() {
 // TestLRUWithExpiration tests LRU behavior with expiration
 func (s *LRUTestSuite) TestLRUWithExpiration() {
 	cache := New[string](48) // 3 * 16 bytes = 48 bytes
-	_ = cache.Reserve()      // Allocate slots
+	cache.Reserve()          // Allocate slots
 	shortTTL := 20 * time.Millisecond
 	longTTL := 5 * time.Minute
 
@@ -195,7 +195,7 @@ func (s *LRUTestSuite) TestLRUWithExpiration() {
 // TestLRUDelete tests LRU behavior with deletion
 func (s *LRUTestSuite) TestLRUDelete() {
 	cache := New[string](48) // 3 * 16 bytes = 48 bytes
-	_ = cache.Reserve()      // Allocate slots
+	cache.Reserve()          // Allocate slots
 	ttl := 5 * time.Minute
 
 	loaders := map[string]func(context.Context, string) (string, error){
@@ -240,7 +240,7 @@ func (s *LRUTestSuite) TestLRUDelete() {
 // TestLRUConcurrentAccess tests concurrent access affecting LRU order
 func (s *LRUTestSuite) TestLRUConcurrentAccess() {
 	cache := New[string](48) // 3 * 16 bytes = 48 bytes
-	_ = cache.Reserve()      // Allocate slots
+	cache.Reserve()          // Allocate slots
 	ttl := 5 * time.Minute
 
 	// Load initial items
@@ -302,7 +302,7 @@ func (s *LRUTestSuite) TestLRUConcurrentAccess() {
 func (s *LRUTestSuite) TestLRUEdgeCases() {
 	// Test with capacity 1
 	cache1 := New[string](16) // 1 * 16 bytes = 16 bytes
-	_ = cache1.Reserve()      // Allocate slots
+	cache1.Reserve()          // Allocate slots
 	ttl := 5 * time.Minute
 
 	_, _, err := cache1.Get(s.T().Context(), "key1", ttl, func(ctx context.Context, k string) (string, error) {
@@ -325,7 +325,7 @@ func (s *LRUTestSuite) TestLRUEdgeCases() {
 
 	// Test with capacity 2
 	cache2 := New[string](32) // 2 * 16 bytes = 32 bytes
-	_ = cache2.Reserve()      // Allocate slots
+	cache2.Reserve()          // Allocate slots
 
 	// Load same key multiple times
 	for i := 0; i < 5; i++ {
@@ -343,7 +343,7 @@ func (s *LRUTestSuite) TestLRUEdgeCases() {
 // TestLRUPeekBehavior tests that Peek doesn't affect LRU order
 func (s *LRUTestSuite) TestLRUPeekBehavior() {
 	cache := New[string](48) // 3 * 16 bytes = 48 bytes
-	_ = cache.Reserve()      // Allocate slots
+	cache.Reserve()          // Allocate slots
 	ttl := 5 * time.Minute
 
 	// Load 3 items

@@ -44,9 +44,7 @@ func main() {
   cache := perch.New[string](1024)
 
   // Reserve memory for the cache (required before use)
-  if err := cache.Reserve(); err != nil {
-    panic(err)
-  }
+  cache.Reserve()
 
   // Define a loader function
   loader := func(ctx context.Context, key string) (string, error) {
@@ -106,14 +104,12 @@ Creates a new Perch cache with the specified capacity in bytes. The actual numbe
 cache := perch.New[string](1024) // 1KB capacity for strings
 ```
 
-### Reserve() error
+### Reserve()
 
 Allocates all the slots required for the cache. **Must be called before the cache is used**. Safe to call multiple times - only allocates once.
 
 ```go
-if err := cache.Reserve(); err != nil {
-  return err
-}
+cache.Reserve()
 ```
 
 ### Get(ctx, key, ttl, loader) (T, bool, error)

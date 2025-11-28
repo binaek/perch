@@ -106,8 +106,7 @@ func (c *Perch[T]) Reset() {
 // Reserve allocates all the slots required for the cache
 // This MUST be called before the cache is used
 // Safe to call multiple times - only allocates once
-func (c *Perch[T]) Reserve() error {
-	var err error
+func (c *Perch[T]) Reserve() {
 	c.reserveOnce.Do(func() {
 		// Allocate all slots upfront
 		c.slots = make([]entry[T], c.cap+1) // 1-based indexing
@@ -126,7 +125,6 @@ func (c *Perch[T]) Reserve() error {
 			c.free = uint32(i)
 		}
 	})
-	return err
 }
 
 // Get returns cached value if present+fresh. Otherwise calls loader once per key,
@@ -134,9 +132,7 @@ func (c *Perch[T]) Reserve() error {
 // When ttl<0, the cache is bypassed and the loader is always called (preserving singleflight for concurrent requests).
 // Returns (value, cacheHit, error) where cacheHit indicates if the value was found in cache.
 func (c *Perch[T]) Get(ctx context.Context, key string, ttl time.Duration, loader Loader[T]) (T, bool, error) {
-	if err := c.Reserve(); err != nil {
-		return *new(T), false, err
-	}
+	c.Reserve()
 
 	var zero T
 	now := time.Now() // cache this for perf
@@ -332,9 +328,7 @@ func (c *Perch[T]) loadInto(ctx context.Context, idx uint32, key string, ttl tim
 }
 
 func (c *Perch[T]) Delete(key string) {
-	if err := c.Reserve(); err != nil {
-		return
-	}
+	c.Reserve()
 
 	c.mu.Lock()
 	idx := c.table[key]
@@ -364,9 +358,7 @@ func (c *Perch[T]) Delete(key string) {
 
 // Peek returns (value, true) only if cached and fresh at the time of call.
 func (c *Perch[T]) Peek(key string) (T, bool) {
-	if err := c.Reserve(); err != nil {
-		return *new(T), false
-	}
+	c.Reserve()
 
 	now := time.Now()
 	c.mu.Lock()
