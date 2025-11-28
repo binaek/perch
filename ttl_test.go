@@ -39,7 +39,7 @@ func (s *TTLTestSuite) SetupSuite() {
 func (s *TTLTestSuite) BeforeTest(suiteName, testName string) {
 	slog.Info("BeforeTest start", "TestSuite", "TTLTestSuite", "TestName", testName)
 	s.cache = New[string](160) // 10 * 16 bytes = 160 bytes
-	_ = s.cache.Reserve()      // Allocate slots
+	s.cache.Reserve()          // Allocate slots
 }
 
 // AfterTest runs after each test
@@ -141,14 +141,14 @@ func (s *TTLTestSuite) TestZeroTTL() {
 		return value, nil
 	}
 
-	// Multiple calls with zero TTL should all call loader
+	// Multiple calls with TTL=0 (indefinite caching) should only call loader once
 	for i := 0; i < 5; i++ {
 		result, _, err := s.cache.Get(s.T().Context(), key, 0, loader)
 		s.NoError(err)
 		s.Equal(value, result)
 	}
 
-	s.Equal(5, callCount, "Should call loader for each zero TTL request")
+	s.Equal(1, callCount, "Should call loader only once with TTL=0 (indefinite caching)")
 }
 
 // TestNegativeTTL tests negative TTL behavior
