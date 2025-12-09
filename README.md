@@ -353,50 +353,52 @@ Comprehensive benchmarks demonstrate Perch's exceptional performance across vari
 
 | Benchmark      | Operations/sec | ns/op | Allocations/op | Bytes/op |
 | -------------- | -------------- | ----- | -------------- | -------- |
-| **Cache Hit**  | 9,110,590      | 129.8 | 0              | 0        |
-| **Cache Miss** | 1,982,652      | 622.3 | 2              | 45       |
-| **Peek**       | 5,787,956      | 192.9 | 0              | 0        |
-| **Delete**     | 12,150,006     | 98.0  | 1              | 21       |
+| **Cache Hit**  | 7,126,246      | 150.6 | 0              | 0        |
+| **Cache Miss** | 2,004,750      | 601.0 | 2              | 45       |
+| **Peek**       | 6,577,094      | 185.3 | 0              | 0        |
+| **Delete**     | 14,064,642     | 84.6  | 1              | 21       |
 
 ### Concurrent Performance
 
 | Benchmark                | Operations/sec | ns/op | Allocations/op | Bytes/op |
 | ------------------------ | -------------- | ----- | -------------- | -------- |
-| **Concurrent Access**    | 6,404,605      | 188.0 | 1              | 16       |
-| **Concurrent Mixed Ops** | 6,479,191      | 181.4 | 1              | 16       |
-| **Singleflight**         | 9,111,879      | 131.9 | 0              | 0        |
+| **Concurrent Access**    | 5,930,722      | 210.8 | 1              | 16       |
+| **Concurrent Mixed Ops** | 6,465,416      | 194.3 | 1              | 16       |
+| **Singleflight**         | 8,102,511      | 150.4 | 0              | 0        |
 
 ### Cache Size Scaling
 
 | Cache Size               | Operations/sec | ns/op | Allocations/op | Bytes/op |
 | ------------------------ | -------------- | ----- | -------------- | -------- |
-| **Small (10 entries)**   | 2,762,568      | 436.1 | 2              | 48       |
-| **Medium (100 entries)** | 2,498,115      | 469.9 | 2              | 47       |
-| **Large (1000 entries)** | 3,599,035      | 403.1 | 2              | 37       |
+| **Small (10 entries)**   | 2,596,210      | 462.0 | 2              | 47       |
+| **Medium (100 entries)** | 2,393,509      | 497.6 | 2              | 47       |
+| **Large (1000 entries)** | 4,622,755      | 266.9 | 2              | 26       |
 
 ### Data Type Performance
 
 | Data Type  | Operations/sec | ns/op | Allocations/op | Bytes/op |
 | ---------- | -------------- | ----- | -------------- | -------- |
-| **String** | 2,570,358      | 473.8 | 2              | 51       |
-| **Int**    | 2,672,947      | 452.1 | 1              | 24       |
-| **Struct** | 2,622,630      | 463.1 | 2              | 52       |
+| **String** | 2,444,108      | 494.2 | 2              | 51       |
+| **Int**    | 2,509,844      | 480.1 | 1              | 24       |
+| **Struct** | 2,427,165      | 487.4 | 2              | 51       |
 
 ### Specialized Operations
 
-| Benchmark          | Operations/sec | ns/op | Allocations/op | Bytes/op |
-| ------------------ | -------------- | ----- | -------------- | -------- |
-| **LRU Eviction**   | 2,741,290      | 432.7 | 2              | 48       |
-| **TTL Expiration** | 6,554,294      | 181.1 | 1              | 16       |
-| **Zero TTL**       | 4,923,733      | 247.5 | 2              | 62       |
-| **Memory Usage**   | 4,601,263      | 230.7 | 3              | 55.86    |
+| Benchmark                     | Operations/sec | ns/op | Allocations/op | Bytes/op |
+| ----------------------------- | -------------- | ----- | -------------- | -------- |
+| **LRU Eviction**              | 2,574,769      | 459.0 | 2              | 47       |
+| **TTL Expiration**            | 6,377,025      | 188.1 | 1              | 16       |
+| **Zero TTL (streaming keys)** | 1,958,320      | 597.7 | 2              | 55       |
+| **Zero TTL (pinned key)**     | 7,971,394      | 150.8 | 0              | 0        |
+| **No Cache (ttl < 0)**        | 1,781,564      | 632.7 | 2              | 58       |
+| **Memory Usage**              | 5,950,029      | 207.3 | 3              | 55.90    |
 
 ### Statistics Operations
 
 | Benchmark                | Operations/sec | ns/op | Allocations/op | Bytes/op |
 | ------------------------ | -------------- | ----- | -------------- | -------- |
-| **Hit Rate Calculation** | 303,347,949    | 3.942 | 0              | 0        |
-| **Stats Calculation**    | 217,571,858    | 5.535 | 0              | 0        |
+| **Hit Rate Calculation** | 318,953,866    | 3.686 | 0              | 0        |
+| **Stats Calculation**    | 217,225,826    | 5.132 | 0              | 0        |
 
 ### Key Performance Highlights
 
