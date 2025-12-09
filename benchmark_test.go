@@ -1,5 +1,3 @@
-// Copyright 2025 Binaek Sarkar
-//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -366,6 +364,48 @@ func BenchmarkZeroTTL(b *testing.B) {
 		for pb.Next() {
 			key := fmt.Sprintf("zero-ttl-key-%d", i)
 			_, _, _ = cache.Get(b.Context(), key, 0, loader)
+			i++
+		}
+	})
+}
+
+// BenchmarkZeroTTL_Pinned benchmarks zero TTL when reused (pinned) key is hit every time.
+func BenchmarkZeroTTL_Pinned(b *testing.B) {
+	cache := New[string](1600)
+	cache.Reserve()
+
+	key := "zero-ttl-pinned"
+	loader := func(ctx context.Context, k string) (string, error) {
+		return "value-" + k, nil
+	}
+
+	// Pre-populate once so subsequent calls are hits.
+	_, _, _ = cache.Get(b.Context(), key, 0, loader)
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			_, _, _ = cache.Get(b.Context(), key, 0, loader)
+		}
+	})
+}
+
+// BenchmarkNoCacheNegativeTTL benchmarks bypass-cache behavior with ttl < 0.
+func BenchmarkNoCacheNegativeTTL(b *testing.B) {
+	cache := New[string](1600)
+	cache.Reserve()
+
+	loader := func(ctx context.Context, k string) (string, error) {
+		time.Sleep(1 * time.Microsecond) // Simulate work
+		return "value-" + k, nil
+	}
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			key := fmt.Sprintf("no-cache-key-%d", i)
+			_, _, _ = cache.Get(b.Context(), key, -1, loader)
 			i++
 		}
 	})
