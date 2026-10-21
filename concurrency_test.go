@@ -39,8 +39,7 @@ func (s *ConcurrencyTestSuite) SetupSuite() {
 // BeforeTest runs before each test
 func (s *ConcurrencyTestSuite) BeforeTest(suiteName, testName string) {
 	slog.Info("BeforeTest start", "TestSuite", "ConcurrencyTestSuite", "TestName", testName)
-	s.cache = New[string](160) // 10 * 16 bytes = 160 bytes
-	s.cache.Reserve()          // Allocate slots
+	s.cache = New[string](10)
 }
 
 // AfterTest runs after each test
@@ -315,8 +314,7 @@ func (s *ConcurrencyTestSuite) TestConcurrentExpiration() {
 
 // TestConcurrentLRUEviction tests concurrent access during LRU eviction
 func (s *ConcurrencyTestSuite) TestConcurrentLRUEviction() {
-	cache := New[string](48) // 3 * 16 bytes = 48 bytes, small capacity to force eviction
-	cache.Reserve()          // Allocate slots
+	cache := New[string](3) // small capacity to force eviction
 	ttl := 5 * time.Minute
 
 	// Load initial items
