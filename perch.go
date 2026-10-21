@@ -16,34 +16,28 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"sync"
 	"time"
-	"unsafe"
 )
 
 type Loader[T any] func(context.Context, string) (T, error)
 
-// getTypeSize returns the size in bytes of type T
-func getTypeSize[T any]() uintptr {
-	var zero T
-	return unsafe.Sizeof(zero)
-}
-
 // Perch is a bounded, per-key TTL, singleflight, zero-alloc-on-hit LRU cache.
-// The capacity is specified in bytes and the number of slots is calculated based on the size of type T.
-// The memory footprint is calculated and pre-allocated to avoid resizing and memory reallocation.
+// The capacity is the maximum number of entries. Entries are allocated lazily as
+// keys are inserted, so memory use is proportional to what the cache holds rather
+// than to its capacity. Call Reserve to preallocate every entry up front.
 type Perch[T any] struct {
-	mu    *sync.Mutex
-	cap   int               // number of slots (calculated from capacityBytes / sizeof(T))
-	table map[string]uint32 // key -> slot index (1..len(slots)); 0 means nil / no entry
-	slots []entry[T]        // 1-based addressing to keep 0 = null
+	mu    sync.Mutex
+	cap   int               // maximum number of entries
+	table map[string]uint32 // key -> slot index (1..len(slots)-1); 0 means nil / no entry
+	slots []*entry[T]       // 1-based addressing; slots[0] is a nil sentinel. Guarded by mu.
 
 	// intrusive doubly-linked LRU list using indices
 	head uint32 // MRU
 	tail uint32 // LRU
 
-	free        uint32     // head of freelist (stack of indices)
-	reserveOnce *sync.Once // ensures Reserve() only runs once
+	free uint32 // head of freelist (stack of indices)
 
 	// hit rate statistics
 	hits   uint64 // number of cache hits
@@ -52,8 +46,8 @@ type Perch[T any] struct {
 
 type entry[T any] struct {
 	// per-entry state (guards loading/result fields)
-	mu  *sync.Mutex
-	cv  *sync.Cond
+	mu  sync.Mutex
+	cv  sync.Cond // cv.L == &mu
 	key string
 
 	// LRU links (indices into Cache.slots)
@@ -63,80 +57,82 @@ type entry[T any] struct {
 	val     T
 	expires time.Time
 	loading bool
+	gen     uint64 // incremented each time a load starts on this entry
 	err     error
 	inuse   bool // true once inserted in table (occupied)
 }
 
-// New creates a new Perch cache with the specified capacity in bytes
-// The actual number of slots is calculated as capacityBytes / sizeof(T).
-func New[T any](capacityBytes int) *Perch[T] {
-	if capacityBytes <= 0 {
-		panic("capacity must be > 0")
-	}
-
-	// Calculate the number of slots based on the size of type T
-	typeSize := getTypeSize[T]()
-	if typeSize == 0 {
-		// For zero-sized types, use a reasonable default
-		typeSize = 1
-	}
-
-	// Calculate number of slots that fit in the given capacity - round down
-	capacityCount := int(capacityBytes) / int(typeSize)
-	if capacityCount == 0 {
-		// Ensure we can store at least one entry
-		capacityCount = 1
-	}
-
-	c := &Perch[T]{
-		mu:          &sync.Mutex{},
-		cap:         capacityCount,
-		table:       make(map[string]uint32, capacityCount*2), // Pre-allocate with capacity hint
-		slots:       make([]entry[T], 0, capacityCount+1),     // 1-based indexing, start empty
-		reserveOnce: &sync.Once{},
-	}
-
-	return c
+func newEntry[T any]() *entry[T] {
+	e := &entry[T]{}
+	e.cv.L = &e.mu
+	return e
 }
 
-// Cap returns the number of slots in the cache
+// New creates a new Perch cache that holds at most capacity entries.
+// No entries are allocated until they are needed; see Reserve.
+// It panics if capacity is <= 0 or greater than math.MaxUint32-1.
+func New[T any](capacity int) *Perch[T] {
+	if capacity <= 0 {
+		panic("perch: capacity must be > 0")
+	}
+	if uint64(capacity) > math.MaxUint32-1 {
+		panic("perch: capacity must be <= math.MaxUint32-1")
+	}
+
+	return &Perch[T]{
+		cap:   capacity,
+		table: make(map[string]uint32),
+		slots: make([]*entry[T], 1), // 1-based indexing; slots[0] is the nil sentinel
+	}
+}
+
+// Cap returns the maximum number of entries the cache can hold
 func (c *Perch[T]) Cap() int {
 	return c.cap
 }
 
-// Reset resets the cache to its initial state
+// Reset resets the cache to its initial (empty, unallocated) state.
+// Loads in flight when Reset is called still return their results to their
+// callers, but those results are not cached.
 func (c *Perch[T]) Reset() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.table = make(map[string]uint32, c.cap*2)
-	c.slots = make([]entry[T], 0, c.cap+1)
-	c.reserveOnce = &sync.Once{}
+	c.table = make(map[string]uint32)
+	c.slots = make([]*entry[T], 1)
+	c.head = 0
+	c.tail = 0
+	c.free = 0
 	c.hits = 0
 	c.misses = 0
 }
 
-// Reserve allocates all the slots required for the cache
-// This MUST be called before the cache is used
-// Safe to call multiple times - only allocates once
+// Reserve preallocates every entry up to the cache's capacity so that later
+// misses do not need to allocate one. It is optional: without it, entries are
+// allocated one at a time as the cache fills. Calling it again is a no-op.
 func (c *Perch[T]) Reserve() {
-	c.reserveOnce.Do(func() {
-		// Allocate all slots upfront
-		c.slots = make([]entry[T], c.cap+1) // 1-based indexing
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-		// Initialize all slots and build freelist
-		for i := 1; i <= c.cap; i++ {
-			e := &c.slots[i]
-			e.mu = &sync.Mutex{}
-			e.cv = sync.NewCond(e.mu)
-			e.prev = 0
-			e.next = 0
-			e.inuse = false
+	n := len(c.slots) - 1
+	if n >= c.cap {
+		return
+	}
 
-			// Add to freelist
-			e.next = c.free
-			c.free = uint32(i)
-		}
-	})
+	// One allocation for all remaining entries; they never move because
+	// block is never resized.
+	block := make([]entry[T], c.cap-n)
+	grown := make([]*entry[T], len(c.slots), c.cap+1)
+	copy(grown, c.slots)
+	c.slots = grown
+	for i := range block {
+		e := &block[i]
+		e.cv.L = &e.mu
+		c.slots = append(c.slots, e)
+
+		// Add to freelist
+		e.next = c.free
+		c.free = uint32(len(c.slots) - 1)
+	}
 }
 
 // Get returns cached value if present+fresh. Otherwise calls loader once per key,
@@ -144,15 +140,13 @@ func (c *Perch[T]) Reserve() {
 // When ttl<0, the cache is bypassed and the loader is always called (preserving singleflight for concurrent requests).
 // Returns (value, cacheHit, error) where cacheHit indicates if the value was found in cache.
 func (c *Perch[T]) Get(ctx context.Context, key string, ttl time.Duration, loader Loader[T]) (T, bool, error) {
-	c.Reserve()
-
 	var zero T
 	now := time.Now() // cache this for perf
 
 	// Fast path: lookup under global lock.
 	c.mu.Lock()
 	if idx := c.table[key]; idx != 0 {
-		e := &c.slots[idx] // 1-based indexing
+		e := c.slots[idx] // 1-based indexing
 		// Take entry lock to check freshness or wait if loading.
 		e.mu.Lock()
 
@@ -176,11 +170,12 @@ func (c *Perch[T]) Get(ctx context.Context, key string, ttl time.Duration, loade
 			if e.inuse && !e.expires.IsZero() && now.Before(e.expires) {
 				// This is a cached entry, bypass it
 				e.loading = true
+				e.gen++
 				e.err = nil
 				e.mu.Unlock()
 				c.mu.Unlock()
-				// proceed to load with this existing slot index
-				return c.loadInto(ctx, idx, key, ttl, loader)
+				// proceed to load into this existing entry
+				return c.loadInto(ctx, idx, e, key, ttl, loader)
 			}
 			// If expires.IsZero(), this was just loaded with ttl<0
 			// Return the value to preserve singleflight (all waiters get same value)
@@ -214,18 +209,23 @@ func (c *Perch[T]) Get(ctx context.Context, key string, ttl time.Duration, loade
 
 		// Stale: we'll (re)load below.
 		e.loading = true
+		e.gen++
 		e.err = nil
 		e.mu.Unlock()
 		c.mu.Unlock()
-		// proceed to load with this existing slot index
-		return c.loadInto(ctx, idx, key, ttl, loader)
+		// proceed to load into this existing entry
+		return c.loadInto(ctx, idx, e, key, ttl, loader)
 	}
-	// Miss: need a slot (either free or evict LRU).
+	// Miss: need a slot (from the freelist, a newly allocated entry, or by evicting the LRU tail).
 	var idx uint32
 	if c.free != 0 {
 		// Use a slot from the freelist
 		idx = c.free
 		c.free = c.slots[idx].next // 1-based indexing
+	} else if len(c.slots)-1 < c.cap {
+		// Below capacity: allocate a new entry
+		c.slots = append(c.slots, newEntry[T]())
+		idx = uint32(len(c.slots) - 1)
 	} else {
 		// evict tail (we're at capacity)
 		idx = c.tail
@@ -234,19 +234,14 @@ func (c *Perch[T]) Get(ctx context.Context, key string, ttl time.Duration, loade
 			c.mu.Unlock()
 			return zero, false, errors.New("lru: no slot available")
 		}
-		et := &c.slots[idx] // 1-based indexing
-		// unlink from list
-		c.unlink(idx)
-		// remove old key from table
-		delete(c.table, et.key)
-		et.key = ""
-		et.inuse = false
+		c.detach(idx)
 	}
-	e := &c.slots[idx] // 1-based indexing
+	e := c.slots[idx] // 1-based indexing
 	// prepare this slot for the new key
 	e.mu.Lock()
 	e.key = key
 	e.loading = true
+	e.gen++
 	e.err = nil
 	e.inuse = true
 	// insert at head (MRU) now; if loader fails we’ll clear in place.
@@ -258,13 +253,12 @@ func (c *Perch[T]) Get(ctx context.Context, key string, ttl time.Duration, loade
 	c.mu.Unlock()
 
 	// Load outside of global lock.
-	return c.loadInto(ctx, idx, key, ttl, loader)
+	return c.loadInto(ctx, idx, e, key, ttl, loader)
 }
 
-// loadInto performs the loader call for a specific slot index and signals waiters.
-func (c *Perch[T]) loadInto(ctx context.Context, idx uint32, key string, ttl time.Duration, loader Loader[T]) (T, bool, error) {
-	e := &c.slots[idx] // 1-based indexing
-
+// loadInto performs the loader call for entry e (at slot index idx) and signals waiters.
+// e is passed in by the caller because c.slots must not be read without c.mu.
+func (c *Perch[T]) loadInto(ctx context.Context, idx uint32, e *entry[T], key string, ttl time.Duration, loader Loader[T]) (T, bool, error) {
 	// wrap the loader - so that we can intercept panics if they happen
 	wrappedLoader := func(ctx context.Context, key string) (t T, err error) {
 		defer func() {
@@ -281,6 +275,7 @@ func (c *Perch[T]) loadInto(ctx context.Context, idx uint32, key string, ttl tim
 	now := time.Now()
 
 	e.mu.Lock()
+	gen := e.gen // no other load can start on e until loading is cleared below
 	if err != nil {
 		// On error, clear expiry and zero value
 		e.expires = time.Time{}
@@ -309,17 +304,21 @@ func (c *Perch[T]) loadInto(ctx context.Context, idx uint32, key string, ttl tim
 	// For errors, waiters already got the error via singleflight, now remove entry
 	if err != nil || ttl < 0 {
 		c.mu.Lock()
-		// Ensure idx still maps to key (it might, unless evicted/raced).
-		if c.table[key] == idx {
-			delete(c.table, key)
-			c.unlink(idx)
-			// push to freelist
+		// Ensure the slot is still ours: the key may have been deleted, evicted
+		// or Reset (and the slot index reused) while we were loading, or another
+		// Get may have started a new load on this entry after we cleared loading.
+		if c.owns(key, idx, e) {
 			e.mu.Lock()
-			e.key = ""
-			e.inuse = false
+			if e.gen == gen {
+				delete(c.table, key)
+				c.unlink(idx)
+				// push to freelist
+				e.key = ""
+				e.inuse = false
+				e.next = c.free
+				c.free = idx
+			}
 			e.mu.Unlock()
-			e.next = c.free
-			c.free = idx
 		}
 		c.mu.Unlock()
 		if err != nil {
@@ -331,7 +330,7 @@ func (c *Perch[T]) loadInto(ctx context.Context, idx uint32, key string, ttl tim
 
 	// Success with caching: bump to MRU (cheap if already at head).
 	c.mu.Lock()
-	if c.table[key] == idx {
+	if c.owns(key, idx, e) {
 		c.moveToFront(idx)
 	}
 	c.misses++ // increment miss counter
@@ -340,42 +339,25 @@ func (c *Perch[T]) loadInto(ctx context.Context, idx uint32, key string, ttl tim
 }
 
 func (c *Perch[T]) Delete(key string) {
-	c.Reserve()
-
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	idx := c.table[key]
 	if idx == 0 {
-		c.mu.Unlock()
 		return
 	}
-	delete(c.table, key)
-	c.unlink(idx)
-	e := &c.slots[idx] // 1-based indexing
+	c.detach(idx)
 	// free-list push under c.mu
+	e := c.slots[idx] // 1-based indexing
 	e.next = c.free
 	c.free = idx
-	c.mu.Unlock()
-
-	// clean entry state under e.mu (no c.mu here)
-	e.mu.Lock()
-	e.key = ""
-	e.inuse = false
-	e.loading = false
-	e.err = nil
-	e.expires = time.Time{}
-	var zero T
-	e.val = zero
-	e.mu.Unlock()
 }
 
 // Peek returns (value, true) only if cached and fresh at the time of call.
 func (c *Perch[T]) Peek(key string) (T, bool) {
-	c.Reserve()
-
 	now := time.Now()
 	c.mu.Lock()
 	if idx := c.table[key]; idx != 0 {
-		e := &c.slots[idx] // 1-based indexing
+		e := c.slots[idx] // 1-based indexing
 		e.mu.Lock()
 		c.mu.Unlock()
 		fresh := e.inuse && !e.loading && !e.expires.IsZero() && now.Before(e.expires)
@@ -394,10 +376,44 @@ func (c *Perch[T]) Peek(key string) (T, bool) {
 	return zero, false
 }
 
+// --- slot helpers (c.mu held) ---
+
+// owns reports whether key still maps to slot idx and that slot still holds e.
+// Comparing the entry pointer matters: after a Reset, eviction or Delete the
+// same index can be handed to a different entry.
+func (c *Perch[T]) owns(key string, idx uint32, e *entry[T]) bool {
+	return c.table[key] == idx && c.slots[idx] == e
+}
+
+// detach removes the occupant of slot idx from the table and the LRU list and
+// leaves a clean entry in the slot, ready for reuse. If the occupant is still
+// loading, it is left to its loader (which will see that it no longer owns the
+// slot) and a fresh entry takes its place, so the loader cannot write its
+// result into a slot that now belongs to another key.
+func (c *Perch[T]) detach(idx uint32) {
+	e := c.slots[idx] // 1-based indexing
+	c.unlink(idx)
+	delete(c.table, e.key)
+
+	e.mu.Lock()
+	if e.loading {
+		e.mu.Unlock()
+		c.slots[idx] = newEntry[T]()
+		return
+	}
+	e.key = ""
+	e.inuse = false
+	e.err = nil
+	e.expires = time.Time{}
+	var zero T
+	e.val = zero
+	e.mu.Unlock()
+}
+
 // --- intrusive LRU helpers (c.mu held) ---
 
 func (c *Perch[T]) unlink(idx uint32) {
-	e := &c.slots[idx] // 1-based indexing
+	e := c.slots[idx] // 1-based indexing
 	prev, next := e.prev, e.next
 	if prev != 0 {
 		c.slots[prev].next = next // 1-based indexing
@@ -413,7 +429,7 @@ func (c *Perch[T]) unlink(idx uint32) {
 }
 
 func (c *Perch[T]) linkFront(idx uint32) {
-	e := &c.slots[idx] // 1-based indexing
+	e := c.slots[idx] // 1-based indexing
 	e.prev = 0
 	e.next = c.head
 	if c.head != 0 {
@@ -480,6 +496,6 @@ type CacheStats struct {
 	Misses   uint64  // Number of cache misses
 	Total    uint64  // Total number of requests (hits + misses)
 	HitRate  float64 // Hit rate as a percentage (0.0 to 100.0)
-	Capacity int     // Cache capacity in number of slots
+	Capacity int     // Cache capacity in number of entries
 	Size     int     // Current number of items in cache
 }

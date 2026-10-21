@@ -16,6 +16,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"math"
 	"sync"
 	"testing"
 	"time"
@@ -38,8 +39,7 @@ func (s *PerchTestSuite) SetupSuite() {
 func (s *PerchTestSuite) BeforeTest(suiteName, testName string) {
 	slog.Info("BeforeTest start", "TestSuite", "PerchTestSuite", "TestName", testName)
 	// Create a fresh cache for each test - enough bytes for 10 string entries
-	s.cache = New[string](160) // 10 * 16 bytes = 160 bytes
-	s.cache.Reserve()          // Allocate slots
+	s.cache = New[string](10)
 }
 
 // AfterTest runs after each test
@@ -55,19 +55,23 @@ func (s *PerchTestSuite) TearDownSuite() {
 
 // TestNew tests the New function
 func (s *PerchTestSuite) TestNew() {
-	// Test valid capacity - pass enough bytes for 5 string entries
-	// Each string is ~16 bytes (pointer + length), so 5 * 16 = 80 bytes
-	cache := New[string](80)
+	// Capacity is the maximum number of entries
+	cache := New[string](5)
 	s.NotNil(cache)
-	s.Equal(5, cache.cap) // Should calculate to 5 slots
-	s.NotNil(cache.mu)
+	s.Equal(5, cache.cap)
+	s.Equal(5, cache.Cap())
+	s.Equal(5, cache.Stats().Capacity)
 	s.NotNil(cache.table)
-	s.NotNil(cache.slots)
-	s.Equal(0, len(cache.slots)) // starts empty before Reserve()
+	s.Equal(1, len(cache.slots)) // only the nil sentinel before use
+	s.Nil(cache.slots[0])
 
-	// Reserve slots
+	// Reserve allocates every entry: capacity + 1 for 1-based indexing
 	cache.Reserve()
-	s.Equal(6, len(cache.slots)) // capacity + 1 for 1-based indexing, allocated after Reserve()
+	s.Equal(6, len(cache.slots))
+	s.Nil(cache.slots[0])
+	for i := 1; i < len(cache.slots); i++ {
+		s.NotNil(cache.slots[i])
+	}
 
 	// Test panic on invalid capacity
 	s.Panics(func() {
@@ -77,6 +81,20 @@ func (s *PerchTestSuite) TestNew() {
 	s.Panics(func() {
 		New[string](-1)
 	}, "Should panic on negative capacity")
+
+	// Slot indices are uint32, so capacity must stay below math.MaxUint32
+	tooBig := uint64(math.MaxUint32)
+	s.Panics(func() {
+		New[string](int(tooBig))
+	}, "Should panic on capacity above the uint32 slot limit")
+
+	if math.MaxInt > math.MaxUint32 {
+		// The largest allowed capacity is accepted (and allocates nothing up front)
+		maxCap := uint64(math.MaxUint32 - 1)
+		s.NotPanics(func() {
+			New[string](int(maxCap))
+		})
+	}
 }
 
 // TestBasicGetAndSet tests basic Get functionality
@@ -219,8 +237,7 @@ func (s *PerchTestSuite) TestPeek() {
 // TestLRUEviction tests LRU eviction when capacity is exceeded
 func (s *PerchTestSuite) TestLRUEviction() {
 	// Create cache with small capacity - 2 string entries
-	cache := New[string](32) // 2 * 16 bytes = 32 bytes
-	cache.Reserve()          // Allocate slots
+	cache := New[string](2)
 	ttl := 5 * time.Minute
 
 	// Load 3 items (exceeds capacity)
@@ -407,8 +424,7 @@ func (s *PerchTestSuite) TestEdgeCases() {
 // TestMoveToFront tests LRU move-to-front behavior
 func (s *PerchTestSuite) TestMoveToFront() {
 	// Create cache with capacity 2 - 2 string entries
-	cache := New[string](32) // 2 * 16 bytes = 32 bytes
-	cache.Reserve()          // Allocate slots
+	cache := New[string](2)
 	ttl := 5 * time.Minute
 
 	// Load two items

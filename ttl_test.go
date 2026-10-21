@@ -36,8 +36,7 @@ func (s *TTLTestSuite) SetupSuite() {
 // BeforeTest runs before each test
 func (s *TTLTestSuite) BeforeTest(suiteName, testName string) {
 	slog.Info("BeforeTest start", "TestSuite", "TTLTestSuite", "TestName", testName)
-	s.cache = New[string](160) // 10 * 16 bytes = 160 bytes
-	s.cache.Reserve()          // Allocate slots
+	s.cache = New[string](10)
 }
 
 // AfterTest runs after each test

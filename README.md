@@ -10,7 +10,7 @@ A high-performance, bounded, per-key TTL, singleflight, zero-allocation-on-hit L
 ## Features
 
 - **Zero Allocation on Hit**: Cache hits don't cause any memory allocations, making it extremely efficient for high-frequency access patterns
-- **Bounded Memory**: Capacity is specified in bytes, with automatic calculation of the number of slots based on the size of the cached type
+- **Bounded Memory**: Capacity is the maximum number of entries. Entries are allocated lazily as the cache fills, so memory use tracks what is actually stored, not the configured capacity
 - **Per-Key TTL**: Each cache entry can have its own time-to-live (TTL)
 - **Singleflight**: Concurrent requests for the same key will only execute the `loader function` once
 - **LRU Eviction**: Least Recently Used eviction policy when capacity is exceeded
@@ -40,11 +40,8 @@ import (
 )
 
 func main() {
-  // Create a cache with 1KB capacity for string values
+  // Create a cache that holds up to 1024 string values
   cache := perch.New[string](1024)
-
-  // Reserve memory for the cache (required before use)
-  cache.Reserve()
 
   // Define a loader function
   loader := func(ctx context.Context, key string) (string, error) {
@@ -82,6 +79,13 @@ func main() {
 }
 ```
 
+## Upgrading from v0.0.x
+
+v0.1.0 changes how a cache is sized:
+
+- **`New` takes an entry count, not bytes.** `New[T](n)` now holds at most `n` entries. In v0.0.x the argument was a byte budget divided by `unsafe.Sizeof(T)`, so `New[string](1024)` meant 64 entries; it now means 1024. Pass the number of entries you want to keep, for example `New[string](64)` to keep the old behaviour of `New[string](1024)`.
+- **`Reserve()` is optional.** Entries are allocated as the cache fills, so you no longer need to call it before using the cache. Calling it still works: it preallocates every entry up front. Remove the call unless you want that, especially for large capacities, since it allocates memory for the full capacity.
+
 ## TTL Semantics & Singleflight
 
 Perch accepts any TTL and adapts its behavior:
@@ -96,17 +100,19 @@ This flexibility makes it easy to mix cached, pinned, and real-time reads while 
 
 ## API Reference
 
-### New[T any](capacityBytes int) \*Perch[T]
+### New[T any](capacity int) \*Perch[T]
 
-Creates a new Perch cache with the specified capacity in bytes. The actual number of slots is calculated as `capacityBytes / sizeof(T)`.
+Creates a new Perch cache that holds at most `capacity` entries. Once the cache is full, adding a new key evicts the least recently used one. No entries are allocated up front: each one is allocated the first time it is needed, so creating a cache with a large capacity is cheap.
+
+Panics if `capacity <= 0` or `capacity > math.MaxUint32-1`.
 
 ```go
-cache := perch.New[string](1024) // 1KB capacity for strings
+cache := perch.New[string](1024) // up to 1024 entries
 ```
 
 ### Reserve()
 
-Allocates all the slots required for the cache. **Must be called before the cache is used**. Safe to call multiple times - only allocates once.
+Optional warm-up: preallocates every entry up to the cache's capacity, so later misses don't need to allocate one. Without it, entries are allocated one at a time as the cache fills. Calling it more than once is a no-op. Only use it when you expect the cache to fill up and want to pay the allocation cost up front, since it allocates memory for the full capacity.
 
 ```go
 cache.Reserve()
@@ -155,7 +161,7 @@ cache.Delete("key")
 
 ### Cap() int
 
-Returns the number of slots in the cache.
+Returns the maximum number of entries the cache can hold.
 
 ```go
 fmt.Println("Cache capacity:", cache.Cap())
@@ -190,7 +196,7 @@ cache.ResetStats() // Reset statistics but keep cached data
 
 ### Reset()
 
-Resets the cache to its initial state, clearing all entries and statistics.
+Resets the cache to its initial state, clearing all entries and statistics and releasing allocated entries. Loads that are in flight during a `Reset` still return their result to their callers, but the result is not cached.
 
 ```go
 cache.Reset()
@@ -208,7 +214,7 @@ type CacheStats struct {
   Misses   uint64  // Number of cache misses
   Total    uint64  // Total number of requests (hits + misses)
   HitRate  float64 // Hit rate as a percentage (0.0 to 100.0)
-  Capacity int     // Cache capacity in number of slots
+  Capacity int     // Cache capacity in number of entries
   Size     int     // Current number of items in cache
 }
 ```
@@ -318,8 +324,7 @@ type User struct {
   Name string
 }
 
-cache := perch.New[User](1024)
-cache.Reserve()
+cache := perch.New[User](1024) // up to 1024 users
 
 loader := func(ctx context.Context, id string) (User, error) {
   // Load user from database
@@ -341,7 +346,7 @@ if hit {
 
 - **Cache Hits**: Sub-microsecond latency with zero allocations
 - **Cache Misses**: Performance depends on the loader function
-- **Memory Usage**: Bounded by the specified capacity in bytes
+- **Memory Usage**: Proportional to the number of entries stored, bounded by the capacity
 - **Concurrency**: Excellent performance under high concurrent load
 - **LRU Operations**: O(1) for most operations
 
@@ -447,8 +452,7 @@ Perch implements a sophisticated Least Recently Used (LRU) eviction policy to ma
 
 ```go
 // Create a small cache to demonstrate LRU behavior
-cache := perch.New[string](64) // 4 * 16 bytes = 4 slots
-cache.Reserve()
+cache := perch.New[string](4) // holds up to 4 entries
 
 loader := func(ctx context.Context, key string) (string, error) {
   return "value-" + key, nil
@@ -524,11 +528,15 @@ Perch is fully thread-safe and can be used concurrently from multiple goroutines
 
 ## Memory Management
 
-The cache pre-allocates all memory during `Reserve()`, preventing runtime allocations during normal operation. The memory footprint is calculated based on:
+`New` allocates only the cache's bookkeeping, not its entries. Each entry is allocated the first time a new key needs a slot, until the cache holds `capacity` entries. From then on, new keys reuse the slot of the evicted (or deleted) entry, so a full cache does not allocate entries any more. Cache hits never allocate.
 
-- The size of the cached type `T`
-- The specified capacity in bytes
-- Overhead for LRU list pointers and metadata
+The memory footprint is therefore roughly:
+
+- The number of entries currently allocated (at most `capacity`), times
+- The size of an entry: the cached type `T`, plus the key, expiry, LRU links and a per-entry mutex and condition variable
+- Plus the key-to-slot map
+
+Call `Reserve()` if you want to allocate every entry up front instead, for example to avoid allocations on the first misses after start-up. It allocates memory for the full capacity, so size the capacity accordingly.
 
 ## Testing
 
@@ -551,6 +559,7 @@ go test -run TestConcurrencyTestSuite
 go test -run TestLRUTestSuite
 go test -run TestTTLTestSuite
 go test -run TestHitRateTestSuite
+go test -run TestSizingTestSuite
 ```
 
 ### Benchmark Tests
