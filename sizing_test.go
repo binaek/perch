@@ -89,10 +89,7 @@ func (s *SizingTestSuite) TestNewDoesNotPreallocate() {
 	s.Equal(10_000_000, c1.Cap())
 
 	// The shapes sentrie uses
-	type binding struct {
-		name string
-		deps []string
-	}
+	type binding struct{} // stand-in for sentrie's *ModuleBinding; only the pointer type matters
 	var c2 *Perch[*binding]
 	delta = s.totalAllocDelta(func() { c2 = New[*binding](100 << 20) })
 	s.Less(delta, uint64(limit), "New[*binding](100<<20) allocated %d bytes", delta)
